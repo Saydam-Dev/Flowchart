@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+"""
+Flowchart Studio / Akış Şeması Stüdyosu
+
+Akış şeması çizin, sonra Çalıştır'a basın - şema çalışır.
+Draw a flowchart, press Run, and it executes.
+
+Saf Python + Tkinter (ek paket gerekmez / no pip packages). Python 3.9+ gerekir.
+Kurulum / Install:   sudo apt install python3-tk
+Başlatma / Start:    python3 flowchart_studio.py [dosya.flow]
+"""
 import ast
 import copy
 import json
@@ -16,6 +26,26 @@ APP = "Flowchart Studio"
 EXT = ".flow"
 CONFIG = os.path.join(os.path.expanduser("~"), ".config", "flowchart-studio", "config.json")
 LANG = "tr"
+
+# keyboard shortcuts: action -> Tk key sequences (changeable under Settings)
+ACTIONS = ["new", "open", "save", "undo", "redo", "run", "step", "stop", "zoom_in", "zoom_out",
+           "zoom_reset", "fit", "delete", "tool_select", "tool_connect", "tool_input",
+           "tool_output", "tool_process", "tool_decision", "tool_loop", "tool_endloop",
+           "tool_connector", "tool_waypoint", "tool_start", "tool_end"]
+DEFAULT_KEYS = {
+    "new": ["<Control-n>"], "open": ["<Control-o>"], "save": ["<Control-s>"],
+    "undo": ["<Control-z>"], "redo": ["<Control-y>"],
+    "run": ["<F5>"], "step": ["<F6>"], "stop": ["<F8>"],
+    "zoom_in": ["<Control-equal>", "<Control-plus>", "<Control-KP_Add>"],
+    "zoom_out": ["<Control-minus>", "<Control-KP_Subtract>"],
+    "zoom_reset": ["<Control-Key-0>"], "fit": ["<Control-Key-8>"],
+    "delete": ["<Delete>", "<BackSpace>"],
+    "tool_select": ["<Escape>", "<Key-1>"], "tool_connect": ["<Key-2>"],
+    "tool_input": ["<Key-3>"], "tool_output": ["<Key-4>"], "tool_process": ["<Key-5>"],
+    "tool_decision": ["<Key-6>"], "tool_loop": ["<Key-7>"], "tool_endloop": ["<Key-8>"],
+    "tool_connector": ["<Key-9>"], "tool_waypoint": ["<Key-0>"], "tool_start": [], "tool_end": [],
+}
+KEYS = {k: list(v) for k, v in DEFAULT_KEYS.items()}
 
 
 def L(tr, en):
@@ -147,26 +177,83 @@ _T = {
     "ex_table": ("Çarpım tablosu", "Multiplication table"),
     "ex_evenodd": ("Tek mi çift mi?", "Even or odd"),
     "ex_array": ("Dizi: toplam ve en büyük", "Array: sum and maximum"),
+    "ex_conn": ("Bağlayıcı örneği", "Connector example"),
+    # new blocks
+    "t_endloop": ("Döngü sonu", "End loop"), "t_connector": ("Bağlayıcı", "Connector"),
+    "t_waypoint": ("Kablo noktası", "Wire point"),
+    "pre_endloop": ("Döngü sonu", "End loop"),
+    "dt_connector": ("Bağlayıcı", "Connector"),
+    "dh_connector": ("Bağlayıcı adı, örn.   A\nAynı adlı iki bağlayıcı birbirine bağlanır: akış, çıkış oku olmayandan çıkış oku olana atlar.\nBoş bırakırsanız sadece bir birleştirme noktası olur.",
+                     "Connector name, e.g.   A\nTwo connectors with the same name are linked: the flow jumps from the one with no outgoing arrow to the one that has an arrow.\nLeave it empty for a plain junction."),
+    "conn_long": ("En fazla 10 karakter yazın.", "Use at most 10 characters."),
+    "ie_endloop": ("Döngü sonu bloğu bir Döngü bloğuna bağlı olmalı.", "An End-loop block must be wired back to a Loop block."),
+    "ie_connector": ("'{name}' adlı bağlayıcının eşi yok (aynı adlı, çıkış oku olan bir bağlayıcı gerekir).",
+                     "Connector '{name}' has no partner (you need a connector with the same name that has an outgoing arrow)."),
+    "er_endloop_target": ("Döngü sonu bloğu sadece bir Döngü bloğuna bağlanabilir.", "An End-loop block can only be wired to a Loop block."),
+    "st_wire": ("Kablo seçildi - Delete ile silin; ortadaki daireyi sürükleyerek kabloya nokta ekleyin; sağ tık menüsü de var.",
+                "Wire selected - Delete removes it; drag the middle handle to add a bend point; right-click for a menu."),
+    "ctx_bend": ("Kabloya nokta ekle", "Add bend point"), "ctx_flip": ("Etiketleri değiştir", "Swap labels"),
+    "ctx_delete": ("Kabloyu sil", "Delete wire"),
+    # settings / keyboard shortcuts
+    "m_set": ("Ayarlar", "Settings"), "set_keys": ("Klavye kısayolları...", "Keyboard shortcuts..."),
+    "kd_title": ("Klavye kısayolları", "Keyboard shortcuts"),
+    "kd_hint": ("Bir satırı seçip Değiştir'e basın (ya da çift tıklayın), sonra yeni tuş kombinasyonuna basın.",
+                "Select a row and press Change (or double-click), then press the new key combination."),
+    "kd_col_action": ("İşlem", "Action"), "kd_col_key": ("Kısayol", "Shortcut"),
+    "kd_change": ("Değiştir...", "Change..."), "kd_clear": ("Kaldır", "Remove"),
+    "kd_reset": ("Varsayılanlara dön", "Reset to defaults"), "kd_close": ("Kapat", "Close"),
+    "kd_conflict": ("{key} zaten \"{other}\" için kullanılıyor. Yine de buna atansın mı?",
+                    "{key} is already used for \"{other}\". Assign it here anyway?"),
+    "cap_prompt": ("\"{name}\" için yeni tuş kombinasyonuna basın", "Press the new key combination for \"{name}\""),
+    "k_new": ("Yeni şema", "New chart"), "k_open": ("Şema aç", "Open chart"), "k_save": ("Kaydet", "Save"),
+    "k_undo": ("Geri al", "Undo"), "k_redo": ("Yinele", "Redo"), "k_run": ("Çalıştır", "Run"),
+    "k_step": ("Adım adım", "Step"), "k_stop": ("Durdur", "Stop"),
+    "k_zoom_in": ("Yakınlaştır", "Zoom in"), "k_zoom_out": ("Uzaklaştır", "Zoom out"),
+    "k_zoom_reset": ("Yakınlaştırmayı %100 yap", "Zoom 100%"), "k_fit": ("Şemayı pencereye sığdır", "Fit chart to window"),
+    "k_delete": ("Seçili blok / kabloyu sil", "Delete selected block / wire"),
+    "k_tool": ("Araç: {name}", "Tool: {name}"),
 }
 
 
-def T(key, **kw):
+def T(key, /, **kw):
     s = _T[key][0 if LANG == "tr" else 1]
     return s.format(**kw) if kw else s
 
 
 HELP_TR = """\
 ŞEMA OLUŞTURMAK
-  1. Soldaki panelden bir blok seçin (Başla, Girdi, Yazdır, İşlem, Karar, Döngü, Bitir),
-     sonra çalışma alanına tıklayın. Yazıyı girin, Ctrl+Enter ile onaylayın.
+  1. Soldaki panelden bir blok seçin, sonra çalışma alanına tıklayın. Yazıyı girin,
+     Ctrl+Enter ile onaylayın.
   2. "Seçiliden otomatik bağla" açıkken yeni blok seçili bloğa kendiliğinden bağlanır.
      Elle bağlamak için: bir bloktan diğerine SAĞ TUŞLA sürükleyin ya da soldaki
      "Bağlan" aracıyla önce ilk bloğa, sonra ikinciye tıklayın.
   3. Karar bloğunun ilk oku "Evet", ikincisi "Hayır" olur.
      Döngü bloğunun ilk oku "Döngü" (gövde), ikincisi "Bitti" (çıkış) olur.
-     Okun üstüne çift tıklayınca etiketler yer değiştirir.
   4. Bloğu düzenlemek için çift tıklayın, taşımak için sürükleyin. Boş alanı sürükleyerek
-     kaydırırsınız. Delete seçili bloğu ya da oku siler.
+     kaydırırsınız.
+
+BLOKLAR
+  Başla / Bitir     şemanın başı ve sonu
+  Girdi / Yazdır    klavyeden değer okur / ekrana yazar
+  İşlem             atama ve hesaplar
+  Karar             Evet / Hayır dallanması
+  Döngü             for döngüsü: gövdeye "Döngü" oku, çıkışa "Bitti" oku gider
+  Döngü sonu        döngü gövdesinin sonu. Gövdenin son bloğu seçiliyken koyun: en yakın
+                    Döngü bloğuna kendiliğinden bağlanır ve kablo geri döner.
+  Bağlayıcı         adlı küçük daire (A, B, ...). Aynı adlı iki bağlayıcı birbirine bağlanır:
+                    akış, çıkış oku olmayandan çıkış oku olana atlar. Uzun kabloları kısaltır.
+                    Adı boş bırakırsanız sadece bir birleştirme noktası olur.
+  Kablo noktası     kabloyu bükmek için küçük nokta; sürükleyerek kabloyu istediğiniz yoldan
+                    geçirirsiniz.
+
+KABLOLAR
+  Bir kabloya tıklayın: seçilir (mavi olur, ortasında bir daire belirir).
+    Delete / Sil düğmesi     seçili kabloyu siler
+    Orta daireyi sürükleyin  kabloya bir Kablo noktası ekler ve taşır
+    Sağ tık                  menü: nokta ekle / Evet-Hayır değiştir / kabloyu sil
+    Çift tık                 Karar ve Döngü kablolarında etiketleri değiştirir,
+                             diğer kablolara nokta ekler
+  Bir Kablo noktasını silerseniz kablo kopmaz, iki yanı birleşir.
 
 YAKINLAŞTIRMA
   Ctrl + fare tekerleği, Ctrl + / Ctrl -, ya da soldaki + / - / Sığdır düğmeleri.
@@ -199,22 +286,46 @@ DİZİLER
   log log10 exp factorial gcd pi randint(a, b) rand()   dizi(...) / array(...)
   Türkçe takma adlar: uzunluk  karekok  mutlak  rastgele  sirala  ekle
 
-KISAYOLLAR
-  Ctrl+N/O/S yeni/aç/kaydet     Ctrl+Z/Y geri al/yinele     Esc  Seç aracına dön
+KLAVYE KISAYOLLARI
+  Ayarlar > Klavye kısayolları ile tüm tuşları değiştirebilirsiniz.
+  Varsayılanlar: Ctrl+N/O/S yeni/aç/kaydet, Ctrl+Z/Y geri al/yinele, F5/F6/F8 çalıştır/adım/durdur,
+  Ctrl +/-/0 yakınlaştırma, Ctrl+8 sığdır, Delete sil, Esc Seç aracı.
+  Araçlar: 1 Seç, 2 Bağlan, 3 Girdi, 4 Yazdır, 5 İşlem, 6 Karar, 7 Döngü, 8 Döngü sonu,
+  9 Bağlayıcı, 0 Kablo noktası.
 """
 
 HELP_EN = """\
 BUILDING A CHART
-  1. Pick a block in the left panel (Start, Input, Output, Process, Decision, Loop, End),
-     then click on the canvas. Type its text and press Ctrl+Enter.
+  1. Pick a block in the left panel, then click on the canvas. Type its text and press
+     Ctrl+Enter.
   2. With "Auto-link from selected" ticked, a new block connects from the selected one.
      To connect by hand: right-drag from one block onto another, or use the Connect tool
      on the left (click the first block, then the second).
   3. A Decision's first arrow is "Yes", the second "No".
      A Loop's first arrow is "Loop" (the body), the second is "Done" (the exit).
-     Double-click an arrow to swap the two labels.
   4. Double-click a block to edit it, drag it to move it. Drag the empty background to pan.
-     Delete removes the selected block or arrow.
+
+BLOCKS
+  Start / End       the beginning and end of the chart
+  Input / Output    read a value from the keyboard / print to the screen
+  Process           assignments and calculations
+  Decision          Yes / No branch
+  Loop              a for loop: the "Loop" arrow goes to the body, "Done" to the exit
+  End loop          the end of a loop body. Place it while the last block of the body is
+                    selected: it wires itself back to the nearest Loop block.
+  Connector         a small named circle (A, B, ...). Two connectors with the same name are
+                    linked: the flow jumps from the one with no outgoing arrow to the one
+                    that has one. Handy for long wires. With no name it is a plain junction.
+  Wire point        a small dot for bending a wire; drag it to route the wire your way.
+
+WIRES
+  Click a wire to select it (it turns blue and a circle appears in the middle).
+    Delete / Delete button   removes the selected wire
+    Drag the middle circle   adds a Wire point to the wire and moves it
+    Right-click              menu: add point / swap Yes-No / delete wire
+    Double-click             swaps the labels on Decision and Loop wires,
+                             adds a point on other wires
+  Deleting a Wire point does not break the wire: its two sides are joined.
 
 ZOOM
   Ctrl + mouse wheel, Ctrl + / Ctrl -, or the + / - / Fit buttons on the left. Ctrl+0 = 100%.
@@ -246,8 +357,12 @@ FUNCTIONS
   log log10 exp factorial gcd pi randint(a, b) rand()   array(...) / dizi(...)
   Turkish aliases: uzunluk  karekok  mutlak  rastgele  sirala  ekle
 
-SHORTCUTS
-  Ctrl+N/O/S new/open/save     Ctrl+Z/Y undo/redo     Esc  back to the Select tool
+KEYBOARD SHORTCUTS
+  Settings > Keyboard shortcuts lets you change every key.
+  Defaults: Ctrl+N/O/S new/open/save, Ctrl+Z/Y undo/redo, F5/F6/F8 run/step/stop,
+  Ctrl +/-/0 zoom, Ctrl+8 fit, Delete delete, Esc Select tool.
+  Tools: 1 Select, 2 Connect, 3 Input, 4 Output, 5 Process, 6 Decision, 7 Loop, 8 End loop,
+  9 Connector, 0 Wire point.
 """
 
 
@@ -258,7 +373,11 @@ def load_config():
     global LANG
     try:
         with open(CONFIG, encoding="utf-8") as fh:
-            LANG = json.load(fh).get("lang", LANG)
+            cfg = json.load(fh)
+        LANG = cfg.get("lang", LANG)
+        for aid, seqs in (cfg.get("keys") or {}).items():
+            if aid in DEFAULT_KEYS and isinstance(seqs, list) and all(isinstance(s, str) for s in seqs):
+                KEYS[aid] = seqs
     except (OSError, ValueError, AttributeError):
         pass
     if LANG not in ("tr", "en"):
@@ -269,7 +388,7 @@ def save_config():
     try:
         os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
         with open(CONFIG, "w", encoding="utf-8") as fh:
-            json.dump({"lang": LANG}, fh)
+            json.dump({"lang": LANG, "keys": KEYS}, fh, indent=1)
     except OSError:
         pass
 
@@ -483,6 +602,9 @@ def check_text(kind, text):
         elif kind == "loop":
             for src in parse_loop(t)[2:]:
                 compile_code(src, "eval")
+        elif kind == "connector":
+            if len(t) > 10 or "\n" in t:
+                return T("conn_long")
     except SyntaxError as e:
         return friendly(e)
     except Exception as e:  # noqa: BLE001
@@ -531,6 +653,16 @@ class Interpreter:
             raise FlowError(None, T("ie_one_start"))
         self.cur = starts[0]
         self.prev = None
+        # connectors: one with no outgoing arrow jumps to a same-named one that has an arrow
+        conns = sorted((n for n in nodes if n["type"] == "connector"), key=lambda n: n["id"])
+        entries = [c for c in conns if self.out.get(c["id"])]
+        for c in conns:
+            name = c["text"].strip()
+            if name and not self.out.get(c["id"]):
+                for o in entries:
+                    if o["text"].strip() == name:
+                        self.out[c["id"]] = [{"src": c["id"], "dst": o["id"], "label": ""}]
+                        break
         self.vars = {}
         self.glob = {"__builtins__": {}}
         self.glob.update(SAFE)
@@ -646,8 +778,12 @@ class Interpreter:
                 raise FlowError(nid, T("ie_no_label", label=T("lbl_" + label)))
         else:
             if not outs:
-                raise FlowError(nid, T("ie_no_arrow"))
+                if t == "connector" and n["text"].strip():
+                    raise FlowError(nid, T("ie_connector", name=n["text"].strip()))
+                raise FlowError(nid, T("ie_endloop") if t == "endloop" else T("ie_no_arrow"))
             nxt = outs[0]
+            if t == "endloop" and self.nodes[nxt["dst"]]["type"] != "loop":
+                raise FlowError(nid, T("ie_endloop"))
         self.prev = nid
         self.cur = nxt["dst"]
         return "ok"
@@ -657,13 +793,18 @@ class Interpreter:
 #  Looks
 # ======================================================================
 COLORS = {"start": "#c8e6c9", "end": "#ffcdd2", "input": "#bbdefb", "output": "#ffe0b2",
-          "process": "#fff9c4", "decision": "#e1bee7", "loop": "#b2dfdb"}
+          "process": "#fff9c4", "decision": "#e1bee7", "loop": "#b2dfdb", "endloop": "#80cbc4",
+          "connector": "#f5f5f5", "waypoint": "#78909c"}
 OUTLINE = {"start": "#2e7d32", "end": "#c62828", "input": "#1565c0", "output": "#e65100",
-           "process": "#f9a825", "decision": "#6a1b9a", "loop": "#00695c"}
+           "process": "#f9a825", "decision": "#6a1b9a", "loop": "#00695c", "endloop": "#004d40",
+           "connector": "#455a64", "waypoint": "#37474f"}
 BASE = {"start": (120, 46), "end": (120, 46), "input": (160, 54), "output": (160, 54),
-        "process": (160, 54), "decision": (180, 90), "loop": (170, 56)}
-SIDE_BLOCKS = ["start", "input", "output", "process", "decision", "loop", "end"]
+        "process": (160, 54), "decision": (180, 90), "loop": (170, 56), "endloop": (170, 50),
+        "connector": (36, 36), "waypoint": (14, 14)}
+SIDE_BLOCKS = ["start", "end", "input", "output", "process", "decision", "loop", "endloop",
+               "connector", "waypoint"]
 PLACE = set(SIDE_BLOCKS)
+NO_TEXT = {"start", "end", "endloop", "waypoint"}  # blocks whose text is not edited
 LABEL_COLOR = {"Yes": "#2e7d32", "No": "#c62828", "Loop": "#00695c", "Done": "#e65100"}
 SIDE_BG = "#eceff1"
 GRID = 10
@@ -686,34 +827,101 @@ def example(eid):
     elif eid == "fact":
         nodes = [("start", "", 260, 50), ("input", "n", 260, 130), ("process", "f = 1", 260, 215),
                  ("loop", "i = 1 to n", 260, 310), ("process", "f = f * i", 260, 420),
+                 ("endloop", "", 260, 510),
                  ("output", L('"Faktöriyel:", f', '"Factorial:", f'), 520, 310), ("end", "", 520, 400)]
-        edges = [(0, 1, ""), (1, 2, ""), (2, 3, ""), (3, 4, "Loop"), (3, 5, "Done"), (4, 3, ""), (5, 6, "")]
+        edges = [(0, 1, ""), (1, 2, ""), (2, 3, ""), (3, 4, "Loop"), (3, 6, "Done"), (4, 5, ""),
+                 (5, 3, ""), (6, 7, "")]
     elif eid == "table":
         nodes = [("start", "", 260, 50), ("input", "n", 260, 130), ("loop", "i = 1 to 10", 260, 230),
-                 ("output", 'n, "x", i, "=", n * i', 260, 340), ("end", "", 520, 230)]
-        edges = [(0, 1, ""), (1, 2, ""), (2, 3, "Loop"), (2, 4, "Done"), (3, 2, "")]
+                 ("output", 'n, "x", i, "=", n * i', 260, 340), ("endloop", "", 260, 430),
+                 ("end", "", 520, 230)]
+        edges = [(0, 1, ""), (1, 2, ""), (2, 3, "Loop"), (2, 5, "Done"), (3, 4, ""), (4, 2, "")]
     elif eid == "evenodd":
         nodes = [("start", "", 300, 50), ("input", "n", 300, 130), ("decision", "n % 2 == 0", 300, 240),
                  ("output", L('"Çift"', '"Even"'), 150, 360), ("output", L('"Tek"', '"Odd"'), 450, 360),
                  ("end", "", 300, 470)]
         edges = [(0, 1, ""), (1, 2, ""), (2, 3, "Yes"), (2, 4, "No"), (3, 5, ""), (4, 5, "")]
+    elif eid == "conn":
+        nodes = [("start", "", 300, 50), ("input", "n", 300, 130), ("decision", "n > 0", 300, 240),
+                 ("output", L('"Pozitif"', '"Positive"'), 150, 350),
+                 ("output", L('"Pozitif değil"', '"Not positive"'), 450, 350),
+                 ("connector", "A", 150, 440), ("connector", "A", 450, 440),
+                 ("connector", "A", 620, 520), ("end", "", 620, 610)]
+        edges = [(0, 1, ""), (1, 2, ""), (2, 3, "Yes"), (2, 4, "No"), (3, 5, ""), (4, 6, ""), (7, 8, "")]
     else:  # array
         big = L("buyuk", "biggest")
         nodes = [("start", "", 260, 50),
                  ("process", f"A = [4, 9, 2, 7, 5]\n{big} = A[0]\n{tot} = 0", 260, 140),
                  ("loop", "x in A", 260, 260), ("process", f"{tot} = {tot} + x", 260, 360),
                  ("decision", f"x > {big}", 260, 470), ("process", f"{big} = x", 260, 590),
+                 ("endloop", "", 260, 700),
                  ("output", L(f'"Toplam =", {tot}, "  En büyük =", {big}',
                               f'"Total =", {tot}, "  Biggest =", {big}'), 540, 260),
-                 ("end", "", 540, 350)]
-        edges = [(0, 1, ""), (1, 2, ""), (2, 3, "Loop"), (2, 6, "Done"), (3, 4, ""), (4, 5, "Yes"),
-                 (4, 2, "No"), (5, 2, ""), (6, 7, "")]
+                 ("end", "", 540, 350), ("waypoint", "", 430, 470), ("waypoint", "", 430, 700)]
+        edges = [(0, 1, ""), (1, 2, ""), (2, 3, "Loop"), (2, 7, "Done"), (3, 4, ""), (4, 5, "Yes"),
+                 (4, 9, "No"), (9, 10, ""), (10, 6, ""), (5, 6, ""), (6, 2, ""), (7, 8, "")]
     return ([{"id": i + 1, "type": t, "text": s or {"start": "Start", "end": "End"}.get(t, ""),
               "x": x, "y": y} for i, (t, s, x, y) in enumerate(nodes)],
             [{"src": a + 1, "dst": b + 1, "label": lb} for a, b, lb in edges])
 
 
-EXAMPLE_IDS = ["fact", "table", "sum", "evenodd", "array"]
+EXAMPLE_IDS = ["fact", "table", "sum", "evenodd", "array", "conn"]
+
+
+def edge_mid(pts):
+    """Point halfway along a wire's path."""
+    segs = [(math.dist(p, q), p, q) for p, q in zip(pts, pts[1:])]
+    half = sum(s[0] for s in segs) / 2
+    for d, p, q in segs:
+        if d > 0 and d >= half:
+            t = half / d
+            return p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t
+        half -= d
+    return pts[0]
+
+
+_KEY_NAMES = {"Control": "Ctrl", "plus": "+", "minus": "-", "equal": "=", "Delete": "Del",
+              "Escape": "Esc", "BackSpace": "Backspace", "KP_Add": "Num +",
+              "KP_Subtract": "Num -", "space": "Space", "Return": "Enter"}
+_MODIFIER_KEYS = {"Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R", "Meta_L",
+                  "Meta_R", "Super_L", "Super_R", "Caps_Lock", "Num_Lock", "ISO_Level3_Shift"}
+_SHIFT_KEYS = re.compile(r"^(F\d+|Tab|Return|Delete|BackSpace|Escape|Home|End|Prior|Next|"
+                         r"Up|Down|Left|Right|Insert|space)$")
+
+
+def pretty(seq):
+    """'<Control-Key-n>' -> 'Ctrl+N'"""
+    out = []
+    for p in seq.strip("<>").split("-"):
+        if p == "Key":
+            continue
+        out.append(_KEY_NAMES.get(p, p.upper() if len(p) == 1 else p))
+    return "+".join(out)
+
+
+def sequence_from_event(ev):
+    """Turn a key press into a Tk binding sequence (None for a lone modifier key)."""
+    k = ev.keysym
+    if k in _MODIFIER_KEYS:
+        return None
+    mods = []
+    if ev.state & 0x4:
+        mods.append("Control")
+    if ev.state & 0x8:
+        mods.append("Alt")
+    if ev.state & 0x1 and _SHIFT_KEYS.match(k):
+        mods.append("Shift")
+    return "<" + "-".join(mods + [("Key-" + k) if len(k) == 1 else k]) + ">"
+
+
+def action_label(aid):
+    if aid.startswith("tool_"):
+        return T("k_tool", name=T("t_" + aid[5:]))
+    return T("k_" + aid)
+
+
+def shortcut_text(aid):
+    return ", ".join(pretty(s) for s in KEYS.get(aid, [])) or "-"
 
 
 def seg_dist(px, py, x0, y0, x1, y1):
@@ -820,6 +1028,97 @@ class InputDialog(tk.Toplevel):
         self.destroy()
 
 
+class CaptureDialog(tk.Toplevel):
+    """Waits for one key combination."""
+
+    def __init__(self, parent, name):
+        super().__init__(parent)
+        self.withdraw()
+        self.result = None
+        self.title(T("kd_title"))
+        self.transient(parent)
+        self.resizable(False, False)
+        ttk.Label(self, text=T("cap_prompt", name=name), justify="center").pack(padx=28, pady=(20, 8))
+        ttk.Button(self, text=T("btn_cancel"), command=self.destroy).pack(pady=(4, 16))
+        self.bind("<KeyPress>", self.on_key)
+        center_window(self, parent)
+        self.deiconify()
+        self.wait_visibility()
+        self.grab_set()
+        self.focus_force()
+
+    def on_key(self, ev):
+        seq = sequence_from_event(ev)
+        if seq:
+            self.result = seq
+            self.destroy()
+
+
+class KeysDialog(tk.Toplevel):
+    def __init__(self, app):
+        super().__init__(app)
+        self.withdraw()
+        self.app = app
+        self.title(T("kd_title"))
+        self.transient(app)
+        ttk.Label(self, text=T("kd_hint"), wraplength=460, justify="left").pack(padx=12, pady=(12, 6), anchor="w")
+        fr = ttk.Frame(self)
+        fr.pack(fill="both", expand=True, padx=12)
+        self.tree = ttk.Treeview(fr, columns=("act", "key"), show="headings", height=14,
+                                 selectmode="browse")
+        self.tree.heading("act", text=T("kd_col_action"))
+        self.tree.heading("key", text=T("kd_col_key"))
+        self.tree.column("act", width=250, anchor="w")
+        self.tree.column("key", width=210, anchor="w")
+        sb = ttk.Scrollbar(fr, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self.tree.pack(side="left", fill="both", expand=True)
+        row = ttk.Frame(self)
+        row.pack(pady=10)
+        ttk.Button(row, text=T("kd_change"), command=self.change).pack(side="left", padx=3)
+        ttk.Button(row, text=T("kd_clear"), command=self.clear).pack(side="left", padx=3)
+        ttk.Button(row, text=T("kd_reset"), command=self.reset).pack(side="left", padx=3)
+        ttk.Button(row, text=T("kd_close"), command=self.destroy).pack(side="left", padx=3)
+        self.tree.bind("<Double-1>", lambda e: self.change())
+        self.bind("<Escape>", lambda e: self.destroy())
+        self.fill()
+        center_window(self, app)
+        self.deiconify()
+        self.wait_visibility()
+        self.grab_set()
+
+    def fill(self, keep=None):
+        self.tree.delete(*self.tree.get_children())
+        for aid in ACTIONS:
+            self.tree.insert("", "end", iid=aid, values=(action_label(aid), shortcut_text(aid)))
+        if keep:
+            self.tree.selection_set(keep)
+            self.tree.see(keep)
+
+    def current(self):
+        sel = self.tree.selection()
+        return sel[0] if sel else None
+
+    def change(self):
+        aid = self.current()
+        if not aid:
+            return
+        d = CaptureDialog(self, action_label(aid))
+        self.wait_window(d)
+        if d.result and self.app.set_keys(aid, [d.result], parent=self):
+            self.fill(aid)
+
+    def clear(self):
+        aid = self.current()
+        if aid and self.app.set_keys(aid, [], parent=self):
+            self.fill(aid)
+
+    def reset(self):
+        self.app.reset_keys()
+        self.fill(self.current())
+
+
 def ask_text(parent, kind, text):
     d = TextDialog(parent, kind, text)
     parent.wait_window(d)
@@ -850,6 +1149,8 @@ class App(tk.Tk):
         self.zfont_b.configure(weight="bold")
         self.hfont = base.copy()
         self.hfont.configure(size=9, weight="bold")
+        self.bfont = base.copy()
+        self.bfont.configure(size=9)
         self.zoom = 1.0
         self.update_fonts()
 
@@ -861,6 +1162,9 @@ class App(tk.Tk):
         self.path, self.dirty = None, False
         self.interp, self.mode, self.job, self.last_vars = None, "idle", None, {}
         self.drag = self.rb = None
+        self.hover_edge = None
+        self.menubar = None
+        self.bound = []
         self.lines = 0
         self.tool = tk.StringVar(value="select")
         self.autolink = tk.BooleanVar(value=True)
@@ -869,7 +1173,7 @@ class App(tk.Tk):
         self.zoom_var = tk.StringVar(value="100%")
         self.lang_var = tk.StringVar(value=LANG)
         self.build_ui()
-        self.bind_keys()
+        self.apply_bindings()
         self.tool.trace_add("write", self.on_tool)
         self.protocol("WM_DELETE_WINDOW", self.quit_app)
         if path and os.path.exists(path):
@@ -886,14 +1190,23 @@ class App(tk.Tk):
         self.zfont.configure(size=size)
         self.zfont_b.configure(size=size)
 
+    def acc(self, aid):
+        return pretty(KEYS[aid][0]) if KEYS.get(aid) else ""
+
     def build_menu(self):
-        menu = tk.Menu(self)
+        old = self.menubar
+        menu = self.menubar = tk.Menu(self)
         self.config(menu=menu)
+        if old is not None:
+            try:
+                old.destroy()
+            except tk.TclError:
+                pass
         f = tk.Menu(menu, tearoff=0)
         menu.add_cascade(label=T("m_file"), menu=f)
-        f.add_command(label=T("f_new"), accelerator="Ctrl+N", command=self.new)
-        f.add_command(label=T("f_open"), accelerator="Ctrl+O", command=self.open_dialog)
-        f.add_command(label=T("f_save"), accelerator="Ctrl+S", command=self.save)
+        f.add_command(label=T("f_new"), accelerator=self.acc("new"), command=self.new)
+        f.add_command(label=T("f_open"), accelerator=self.acc("open"), command=self.open_dialog)
+        f.add_command(label=T("f_save"), accelerator=self.acc("save"), command=self.save)
         f.add_command(label=T("f_saveas"), command=self.save_as)
         ex = tk.Menu(f, tearoff=0)
         for eid in EXAMPLE_IDS:
@@ -904,22 +1217,26 @@ class App(tk.Tk):
         f.add_command(label=T("f_quit"), command=self.quit_app)
         e = tk.Menu(menu, tearoff=0)
         menu.add_cascade(label=T("m_edit"), menu=e)
-        e.add_command(label=T("e_undo"), accelerator="Ctrl+Z", command=self.undo_cmd)
-        e.add_command(label=T("e_redo"), accelerator="Ctrl+Y", command=self.redo_cmd)
-        e.add_command(label=T("e_delete"), accelerator="Del", command=self.delete_sel)
+        e.add_command(label=T("e_undo"), accelerator=self.acc("undo"), command=self.undo_cmd)
+        e.add_command(label=T("e_redo"), accelerator=self.acc("redo"), command=self.redo_cmd)
+        e.add_command(label=T("e_delete"), accelerator=self.acc("delete"), command=self.delete_sel)
         v = tk.Menu(menu, tearoff=0)
         menu.add_cascade(label=T("m_view"), menu=v)
-        v.add_command(label=T("v_in"), accelerator="Ctrl +", command=lambda: self.zoom_at(1.2))
-        v.add_command(label=T("v_out"), accelerator="Ctrl -", command=lambda: self.zoom_at(1 / 1.2))
-        v.add_command(label=T("v_reset"), accelerator="Ctrl 0", command=self.zoom_reset)
-        v.add_command(label=T("v_fit"), command=self.fit_view)
+        v.add_command(label=T("v_in"), accelerator=self.acc("zoom_in"), command=lambda: self.zoom_at(1.2))
+        v.add_command(label=T("v_out"), accelerator=self.acc("zoom_out"), command=lambda: self.zoom_at(1 / 1.2))
+        v.add_command(label=T("v_reset"), accelerator=self.acc("zoom_reset"), command=self.zoom_reset)
+        v.add_command(label=T("v_fit"), accelerator=self.acc("fit"), command=self.fit_view)
         r = tk.Menu(menu, tearoff=0)
         menu.add_cascade(label=T("m_run"), menu=r)
-        r.add_command(label=T("r_run"), accelerator="F5", command=self.on_run)
-        r.add_command(label=T("r_step"), accelerator="F6", command=self.on_step)
-        r.add_command(label=T("r_stop"), accelerator="F8", command=self.on_stop)
-        lg = tk.Menu(menu, tearoff=0)
-        menu.add_cascade(label=T("m_lang"), menu=lg)
+        r.add_command(label=T("r_run"), accelerator=self.acc("run"), command=self.on_run)
+        r.add_command(label=T("r_step"), accelerator=self.acc("step"), command=self.on_step)
+        r.add_command(label=T("r_stop"), accelerator=self.acc("stop"), command=self.on_stop)
+        st = tk.Menu(menu, tearoff=0)
+        menu.add_cascade(label=T("m_set"), menu=st)
+        st.add_command(label=T("set_keys"), command=self.open_keys)
+        st.add_separator()
+        lg = tk.Menu(st, tearoff=0)
+        st.add_cascade(label=T("m_lang"), menu=lg)
         lg.add_radiobutton(label="Türkçe", value="tr", variable=self.lang_var,
                            command=lambda: self.set_lang("tr"))
         lg.add_radiobutton(label="English", value="en", variable=self.lang_var,
@@ -931,12 +1248,16 @@ class App(tk.Tk):
     def tool_button(self, parent, val):
         color = COLORS.get(val, "#e0e0e0")
         edge = OUTLINE.get(val, "#90a4ae")
-        tk.Radiobutton(parent, text=T("t_" + val), value=val, variable=self.tool,
-                       indicatoron=False, anchor="w", padx=10, pady=2, bg=color,
-                       activebackground=shade(color, 0.93), selectcolor=shade(color, 0.78),
-                       fg="#263238", relief="raised", bd=2, highlightthickness=2,
-                       highlightbackground=edge, highlightcolor=edge
-                       ).pack(fill="x", padx=8, pady=1)
+        return tk.Radiobutton(parent, text=T("t_" + val), value=val, variable=self.tool,
+                              indicatoron=False, anchor="w", padx=6, pady=2, bg=color,
+                              font=self.bfont, activebackground=shade(color, 0.93),
+                              selectcolor=shade(color, 0.78), fg="#263238", relief="raised",
+                              bd=2, highlightthickness=2, highlightbackground=edge,
+                              highlightcolor=edge)
+
+    def edit_button(self, parent, val):
+        cmd = {"undo": self.undo_cmd, "redo": self.redo_cmd, "delete": self.delete_sel}[val]
+        return ttk.Button(parent, text=T("b_" + val), command=cmd)
 
     def build_sidebar(self):
         side = tk.Frame(self, bg=SIDE_BG, bd=1, relief="groove")
@@ -944,24 +1265,26 @@ class App(tk.Tk):
 
         def head(text):
             tk.Label(side, text=text, bg=SIDE_BG, fg="#546e7a", font=self.hfont,
-                     anchor="w").pack(fill="x", padx=10, pady=(8, 1))
+                     anchor="w").pack(fill="x", padx=8, pady=(8, 1))
+
+        def grid(vals, make):
+            fr = tk.Frame(side, bg=SIDE_BG)
+            fr.pack(fill="x", padx=6)
+            fr.grid_columnconfigure(0, weight=1, uniform="c")
+            fr.grid_columnconfigure(1, weight=1, uniform="c")
+            for i, v in enumerate(vals):
+                make(fr, v).grid(row=i // 2, column=i % 2, sticky="ew", padx=2, pady=1)
 
         head(T("s_tools"))
-        for val in ("select", "connect"):
-            self.tool_button(side, val)
+        grid(["select", "connect"], self.tool_button)
         head(T("s_blocks"))
-        for val in SIDE_BLOCKS:
-            self.tool_button(side, val)
+        grid(SIDE_BLOCKS, self.tool_button)
         head(T("s_edit"))
-        row = tk.Frame(side, bg=SIDE_BG)
-        row.pack(fill="x", padx=8)
-        ttk.Button(row, text=T("b_undo"), command=self.undo_cmd).pack(fill="x", pady=1)
-        ttk.Button(row, text=T("b_redo"), command=self.redo_cmd).pack(fill="x", pady=1)
-        ttk.Button(row, text=T("b_delete"), command=self.delete_sel).pack(fill="x", pady=1)
+        grid(["undo", "redo", "delete"], self.edit_button)
         head(T("s_zoom"))
         zr = tk.Frame(side, bg=SIDE_BG)
         zr.pack(fill="x", padx=8)
-        ttk.Button(zr, text="−", width=3, command=lambda: self.zoom_at(1 / 1.2)).pack(side="left")
+        ttk.Button(zr, text="\u2212", width=3, command=lambda: self.zoom_at(1 / 1.2)).pack(side="left")
         tk.Label(zr, textvariable=self.zoom_var, bg=SIDE_BG, width=5).pack(side="left", expand=True)
         ttk.Button(zr, text="+", width=3, command=lambda: self.zoom_at(1.2)).pack(side="right")
         ttk.Button(side, text=T("b_fit"), command=self.fit_view).pack(fill="x", padx=8, pady=(3, 8))
@@ -1022,6 +1345,8 @@ class App(tk.Tk):
         self.console.pack(fill="both", expand=True, padx=(3, 0), pady=3)
         self.console.tag_configure("err", foreground="#b71c1c")
 
+        c.bind("<Motion>", self.on_hover)
+        c.bind("<Leave>", lambda e: self.clear_hover())
         c.bind("<Button-1>", self.on_press)
         c.bind("<B1-Motion>", self.on_motion)
         c.bind("<ButtonRelease-1>", self.on_release)
@@ -1029,8 +1354,6 @@ class App(tk.Tk):
         c.bind("<Button-3>", self.on_rpress)
         c.bind("<B3-Motion>", self.on_rmotion)
         c.bind("<ButtonRelease-3>", self.on_rrelease)
-        c.bind("<Delete>", self.delete_sel)
-        c.bind("<BackSpace>", self.delete_sel)
         c.bind("<Button-4>", lambda e: c.yview_scroll(-3, "units"))
         c.bind("<Button-5>", lambda e: c.yview_scroll(3, "units"))
         c.bind("<Shift-Button-4>", lambda e: c.xview_scroll(-3, "units"))
@@ -1040,21 +1363,58 @@ class App(tk.Tk):
         c.bind("<MouseWheel>", lambda e: self.zoom_at(1.15 if e.delta > 0 else 1 / 1.15, e.x, e.y)
                if e.state & 4 else c.yview_scroll(-1 if e.delta > 0 else 1, "units"))
 
-    def bind_keys(self):
-        self.bind("<Control-n>", lambda e: self.new())
-        self.bind("<Control-o>", lambda e: self.open_dialog())
-        self.bind("<Control-s>", lambda e: self.save())
-        self.bind("<Control-z>", self.undo_cmd)
-        self.bind("<Control-y>", self.redo_cmd)
-        for k in ("<Control-plus>", "<Control-equal>", "<Control-KP_Add>"):
-            self.bind(k, lambda e: self.zoom_at(1.2))
-        for k in ("<Control-minus>", "<Control-KP_Subtract>"):
-            self.bind(k, lambda e: self.zoom_at(1 / 1.2))
-        self.bind("<Control-0>", lambda e: self.zoom_reset())
-        self.bind("<F5>", lambda e: self.on_run())
-        self.bind("<F6>", lambda e: self.on_step())
-        self.bind("<F8>", lambda e: self.on_stop())
-        self.bind("<Escape>", lambda e: self.tool.set("select"))
+    def action_func(self, aid):
+        if aid.startswith("tool_"):
+            return lambda: self.tool.set(aid[5:])
+        return {"new": self.new, "open": self.open_dialog, "save": self.save,
+                "undo": self.undo_cmd, "redo": self.redo_cmd, "run": self.on_run,
+                "step": self.on_step, "stop": self.on_stop,
+                "zoom_in": lambda: self.zoom_at(1.2), "zoom_out": lambda: self.zoom_at(1 / 1.2),
+                "zoom_reset": self.zoom_reset, "fit": self.fit_view,
+                "delete": self.delete_sel}[aid]
+
+    def apply_bindings(self):
+        for w, seq in self.bound:
+            try:
+                w.unbind(seq)
+            except tk.TclError:
+                pass
+        self.bound = []
+        for aid in ACTIONS:
+            fn = self.action_func(aid)
+            w = self.canvas if aid == "delete" else self
+            for seq in KEYS.get(aid, []):
+                try:
+                    w.bind(seq, lambda e, f=fn: (f(), "break")[1])
+                    self.bound.append((w, seq))
+                except tk.TclError:
+                    pass
+
+    def set_keys(self, aid, seqs, parent=None):
+        for seq in seqs:
+            for other in ACTIONS:
+                if other != aid and seq in KEYS[other]:
+                    if not messagebox.askyesno(APP, T("kd_conflict", key=pretty(seq),
+                                                      other=action_label(other)),
+                                               parent=parent or self):
+                        return False
+                    KEYS[other].remove(seq)
+        KEYS[aid] = list(seqs)
+        save_config()
+        self.apply_bindings()
+        self.build_menu()
+        return True
+
+    def reset_keys(self):
+        for k, v in DEFAULT_KEYS.items():
+            KEYS[k] = list(v)
+        save_config()
+        self.apply_bindings()
+        self.build_menu()
+
+    def open_keys(self):
+        d = KeysDialog(self)
+        self.wait_window(d)
 
     def rebuild_ui(self):
         log = self.console.get("1.0", "end-1c")
@@ -1062,6 +1422,7 @@ class App(tk.Tk):
         for w in self.winfo_children():
             w.destroy()
         self.build_ui()
+        self.apply_bindings()
         if log:
             self.console.config(state="normal")
             self.console.insert("end", log)
@@ -1113,12 +1474,31 @@ class App(tk.Tk):
         self.title(f"{name}{'*' if v else ''} - {APP}")
 
     # ------------------------------------------------------------ drawing
+    def loop_var(self, nid):
+        """Variable of the Loop block an End-loop block is wired to."""
+        for e in self.edges:
+            if e["src"] == nid:
+                d = self.nodes.get(e["dst"])
+                if d and d["type"] == "loop":
+                    try:
+                        return parse_loop(d["text"])[1]
+                    except SyntaxError:
+                        return ""
+        return ""
+
     def disp(self, n):
         t = n["type"]
         if t == "start":
             return T("start_txt")
         if t == "end":
             return T("end_txt")
+        if t == "waypoint":
+            return ""
+        if t == "connector":
+            return n["text"]
+        if t == "endloop":
+            v = self.loop_var(n["id"])
+            return T("pre_endloop") + (": " + v if v else "")
         pre = T("pre_" + t) if t in ("input", "output", "loop") else ""
         return pre + n["text"]
 
@@ -1126,16 +1506,20 @@ class App(tk.Tk):
         """Block size in chart units (independent of zoom)."""
         t = n["type"]
         bw, bh = BASE[t]
+        if t == "waypoint":
+            return bw, bh
         lines = self.disp(n).split("\n")
         tw = max(self.mfont.measure(s) for s in lines)
         lh = self.mfont.metrics("linespace")
+        if t == "connector":
+            return max(bw, tw + 20), bh
         if t == "decision":
             return min(460, max(bw, tw * 1.7 + 30)), max(bh, len(lines) * lh * 1.8 + 24)
         return min(420, max(bw, tw + 46)), max(bh, len(lines) * lh + 26)
 
     def shape(self, t, x, y, w, h, **kw):
         c, z = self.canvas, self.zoom
-        if t in ("start", "end"):
+        if t in ("start", "end", "connector", "waypoint"):
             return c.create_oval(x - w / 2, y - h / 2, x + w / 2, y + h / 2, **kw)
         if t in ("input", "output"):
             s = 16 * z
@@ -1148,19 +1532,31 @@ class App(tk.Tk):
             return c.create_polygon(x - w / 2 + s, y - h / 2, x + w / 2 - s, y - h / 2,
                                     x + w / 2, y, x + w / 2 - s, y + h / 2,
                                     x - w / 2 + s, y + h / 2, x - w / 2, y, **kw)
+        if t == "endloop":  # a block with its lower corners cut off
+            s = 14 * z
+            return c.create_polygon(x - w / 2, y - h / 2, x + w / 2, y - h / 2,
+                                    x + w / 2, y + h / 2 - s, x + w / 2 - s, y + h / 2,
+                                    x - w / 2 + s, y + h / 2, x - w / 2, y + h / 2 - s, **kw)
         return c.create_polygon(x, y - h / 2, x + w / 2, y, x, y + h / 2, x - w / 2, y, **kw)
 
     def draw_node(self, n):
         c, nid, t, z = self.canvas, n["id"], n["type"], self.zoom
         w, h = self.geo[nid] = self.geom(n)
         x, y, W, H = n["x"] * z, n["y"] * z, w * z, h * z
+        tags = ("node", f"n{nid}", f"s{nid}")
+        if t == "waypoint":
+            self.shape(t, x, y, W, H, fill=COLORS[t], outline=OUTLINE[t],
+                       width=max(1.5, 2 * z), tags=tags)
+            return
         off = max(2, 4 * z)
         self.shape(t, x + off, y + off, W, H, fill="#cfd8dc", outline="",
                    tags=("shadow", f"n{nid}"))
         self.shape(t, x, y, W, H, fill=COLORS[t], outline=OUTLINE[t],
-                   width=max(1.5, 2.6 * z), tags=("node", f"n{nid}", f"s{nid}"))
-        c.create_text(x, y, text=self.disp(n), font=self.zfont, justify="center", fill="#263238",
-                      width=(0.62 * W if t == "decision" else W - 30 * z), tags=("node", f"n{nid}"))
+                   width=max(1.5, 2.6 * z), tags=tags)
+        c.create_text(x, y, text=self.disp(n), fill="#263238", justify="center",
+                      font=self.zfont_b if t == "connector" else self.zfont,
+                      width=(0.62 * W if t == "decision" else W - 30 * z) if t != "connector" else 0,
+                      tags=("node", f"n{nid}"))
 
     def anchors(self, nid):
         n = self.nodes[nid]
@@ -1177,7 +1573,8 @@ class App(tk.Tk):
         """Arrow route in chart units."""
         a, b = self.nodes[e["src"]], self.nodes[e["dst"]]
         A, B = self.anchors(a["id"]), self.anchors(b["id"])
-        if self.is_back(e):  # going back up (a loop): swing round the left side
+        straight = "waypoint" in (a["type"], b["type"])  # wire points give you full control
+        if self.is_back(e) and not straight:  # going back up (a loop): swing round the left side
             k = 0
             for o in self.edges:
                 if o is e:
@@ -1194,15 +1591,21 @@ class App(tk.Tk):
         c, z = self.canvas, self.zoom
         c.delete("edge")
         self.edge_pts = {}
-        if self.sel_edge not in {(e["src"], e["dst"]) for e in self.edges}:
+        keys = {(e["src"], e["dst"]) for e in self.edges}
+        if self.sel_edge not in keys:
             self.sel_edge = None
+        if self.hover_edge not in keys:
+            self.hover_edge = None
         for e in self.edges:
             key = (e["src"], e["dst"])
             pts = self.edge_pts[key] = self.edge_points(e)
-            sel = key == self.sel_edge
-            c.create_line(*[v * z for p in pts for v in p], arrow="last",
-                          arrowshape=(11 * z, 13 * z, 5 * z), width=max(1.5, (3.2 if sel else 2.2) * z),
-                          fill="#1565c0" if sel else "#37474f", joinstyle="round", tags="edge")
+            sel, hov = key == self.sel_edge, key == self.hover_edge
+            color = "#1565c0" if sel else ("#42a5f5" if hov else "#37474f")
+            width = max(1.5, (3.6 if sel else 3.0 if hov else 2.2) * z)
+            arrow = "none" if self.nodes[e["dst"]]["type"] == "waypoint" else "last"
+            c.create_line(*[v * z for p in pts for v in p], arrow=arrow,
+                          arrowshape=(11 * z, 13 * z, 5 * z), width=width, fill=color,
+                          joinstyle="round", tags="edge")
             if e["label"]:
                 (x0, y0), (x1, y1) = pts[0], pts[1]
                 d = math.hypot(x1 - x0, y1 - y0) or 1
@@ -1211,6 +1614,10 @@ class App(tk.Tk):
                 c.create_text((x0 + ux * 24 - uy * 14 * sg) * z, (y0 + uy * 24 + ux * 14 * sg) * z,
                               text=T("lbl_" + e["label"]), font=self.zfont_b, tags="edge",
                               fill=LABEL_COLOR.get(e["label"], "#37474f"))
+            if sel:  # handle in the middle: drag it to bend the wire
+                mx, my = edge_mid(pts)
+                c.create_oval(mx * z - 7, my * z - 7, mx * z + 7, my * z + 7, fill="white",
+                              outline="#1565c0", width=2, tags="edge")
         try:
             c.tag_lower("edge")
             c.tag_raise("edge", "shadow")
@@ -1332,6 +1739,24 @@ class App(tk.Tk):
         self.style(nid)
         self.draw_edges()
         self.draw_halo()
+        if edge:
+            self.say(T("st_wire"))
+
+    def on_hover(self, ev):
+        if self.drag or self.rb or self.tool.get() != "select":
+            return
+        x, y = self.cxy(ev)
+        key = None if self.node_at(x, y) is not None else self.edge_at(x, y)
+        if key != self.hover_edge:
+            self.hover_edge = key
+            self.canvas.config(cursor="hand2" if key else "")
+            self.draw_edges()
+
+    def clear_hover(self):
+        if self.hover_edge is not None:
+            self.hover_edge = None
+            self.canvas.config(cursor="")
+            self.draw_edges()
 
     def set_link(self, nid):
         old, self.link_src = self.link_src, nid
@@ -1344,14 +1769,14 @@ class App(tk.Tk):
     def node_at(self, x, y):
         for n in reversed(list(self.nodes.values())):
             w, h = self.geo.get(n["id"], (0, 0))
-            if abs(x - n["x"]) <= w / 2 and abs(y - n["y"]) <= h / 2:
+            if abs(x - n["x"]) <= max(w, 22) / 2 and abs(y - n["y"]) <= max(h, 22) / 2:
                 return n["id"]
         return None
 
     def edge_at(self, x, y):
         for key, pts in self.edge_pts.items():
             for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
-                if seg_dist(x, y, x0, y0, x1, y1) < 7 / self.zoom:
+                if seg_dist(x, y, x0, y0, x1, y1) < 9 / self.zoom:
                     return key
         return None
 
@@ -1376,16 +1801,22 @@ class App(tk.Tk):
                 src = self.link_src
                 self.set_link(None)
                 self.connect(src, nid)
-        elif nid is not None:
-            self.select(nid=nid)
-            n = self.nodes[nid]
-            self.drag = {"id": nid, "dx": n["x"] - x, "dy": n["y"] - y, "moved": False}
         else:
-            key = self.edge_at(x, y)
-            self.select(edge=key)
-            if key is None:
-                self.canvas.scan_mark(ev.x, ev.y)
-                self.drag = {"pan": True}
+            if self.sel_edge in self.edge_pts:  # grab the handle in the middle of the selected wire
+                mx, my = edge_mid(self.edge_pts[self.sel_edge])
+                if math.hypot(x - mx, y - my) * self.zoom < 11:
+                    self.bend_wire(self.sel_edge, mx, my)
+                    return
+            if nid is not None:
+                self.select(nid=nid)
+                n = self.nodes[nid]
+                self.drag = {"id": nid, "dx": n["x"] - x, "dy": n["y"] - y, "moved": False}
+            else:
+                key = self.edge_at(x, y)
+                self.select(edge=key)
+                if key is None:
+                    self.canvas.scan_mark(ev.x, ev.y)
+                    self.drag = {"pan": True}
 
     def on_motion(self, ev):
         d = self.drag
@@ -1421,16 +1852,40 @@ class App(tk.Tk):
             return
         key = self.edge_at(x, y)
         if key:
-            self.flip_label(key)
+            e = next(e for e in self.edges if (e["src"], e["dst"]) == key)
+            if self.nodes[e["src"]]["type"] in PAIR:
+                self.flip_label(key)
+            else:
+                self.split_edge(key, round(x / GRID) * GRID, round(y / GRID) * GRID)
 
     def on_rpress(self, ev):
         x, y = self.canvas.canvasx(ev.x), self.canvas.canvasy(ev.y)
-        nid = self.node_at(x / self.zoom, y / self.zoom)
+        mx, my = x / self.zoom, y / self.zoom
+        nid = self.node_at(mx, my)
         self.rb = None
         if nid is not None:
             line = self.canvas.create_line(x, y, x, y, dash=(4, 3), width=2,
                                            fill="#2e7d32", arrow="last")
             self.rb = {"src": nid, "line": line}
+            return
+        key = self.edge_at(mx, my)
+        if key:
+            self.select(edge=key)
+            self.wire_menu(ev, key, mx, my)
+
+    def wire_menu(self, ev, key, x, y):
+        e = next(e for e in self.edges if (e["src"], e["dst"]) == key)
+        m = tk.Menu(self, tearoff=0)
+        m.add_command(label=T("ctx_bend"), command=lambda: self.split_edge(
+            key, round(x / GRID) * GRID, round(y / GRID) * GRID))
+        if self.nodes[e["src"]]["type"] in PAIR:
+            m.add_command(label=T("ctx_flip"), command=lambda: self.flip_label(key))
+        m.add_separator()
+        m.add_command(label=T("ctx_delete"), command=self.delete_sel)
+        try:
+            m.tk_popup(ev.x_root, ev.y_root)
+        finally:
+            m.grab_release()
 
     def on_rmotion(self, ev):
         if self.rb:
@@ -1489,6 +1944,8 @@ class App(tk.Tk):
             return T("er_self")
         if s["type"] == "end":
             return T("er_end")
+        if s["type"] == "endloop" and d["type"] != "loop":
+            return T("er_endloop_target")
         if d["type"] == "start":
             return T("er_start")
         if any(e["src"] == src and e["dst"] == dst for e in self.edges):
@@ -1512,30 +1969,72 @@ class App(tk.Tk):
             self.say(err)
             return
         self.checkpoint(snap)
-        self.draw_edges()
+        if self.nodes[src]["type"] == "endloop":
+            self.redraw()  # its label shows the loop variable
+        else:
+            self.draw_edges()
+
+    def open_loop(self, start):
+        """Nearest Loop block upstream of `start` that has no End-loop block yet."""
+        paired = {e["dst"] for e in self.edges if self.nodes[e["src"]]["type"] == "endloop"}
+        seen, queue = set(), [start]
+        while queue:
+            x = queue.pop(0)
+            if x in seen:
+                continue
+            seen.add(x)
+            if self.nodes[x]["type"] == "loop" and x not in paired:
+                return x
+            queue.extend(e["src"] for e in self.edges if e["dst"] == x)
+        return None
+
+    def split_edge(self, key, x, y):
+        """Put a Wire point on a wire. Returns the new block's id."""
+        e = next(e for e in self.edges if (e["src"], e["dst"]) == key)
+        snap = self.to_json()
+        nid = self.new_id()
+        self.nodes[nid] = {"id": nid, "type": "waypoint", "text": "", "x": x, "y": y}
+        self.edges.remove(e)
+        self.edges.append({"src": e["src"], "dst": nid, "label": e["label"]})
+        self.edges.append({"src": nid, "dst": e["dst"], "label": ""})
+        self.checkpoint(snap)
+        self.sel_node, self.sel_edge = nid, None
+        self.redraw()
+        return nid
+
+    def bend_wire(self, key, x, y):
+        """Drag-from-the-handle: add a Wire point and carry on dragging it."""
+        nid = self.split_edge(key, round(x / GRID) * GRID, round(y / GRID) * GRID)
+        n = self.nodes[nid]
+        self.drag = {"id": nid, "dx": n["x"] - x, "dy": n["y"] - y, "moved": True}
 
     def place(self, kind, x, y):
         self.tool.set("select")
         if kind == "start" and any(n["type"] == "start" for n in self.nodes.values()):
             self.say(T("er_one_start"))
             return
-        text = {"start": "Start", "end": "End"}.get(kind)
-        if text is None:
+        text = {"start": "Start", "end": "End"}.get(kind, "")
+        if kind not in NO_TEXT:
             text = ask_text(self, kind, "")
             if text is None:
                 return
         snap = self.to_json()
         nid = self.new_id()
         self.nodes[nid] = {"id": nid, "type": kind, "text": text, "x": x, "y": y}
-        if self.autolink.get() and self.sel_node in self.nodes and kind != "start":
-            self.link(self.sel_node, nid)
+        src = self.sel_node
+        if self.autolink.get() and src in self.nodes and kind != "start":
+            self.link(src, nid)
+            if kind == "endloop":  # wire it back to the loop it closes
+                loop = self.open_loop(src)
+                if loop is not None:
+                    self.link(nid, loop)
         self.checkpoint(snap)
         self.sel_node, self.sel_edge = nid, None
         self.redraw()
 
     def edit_node(self, nid):
         n = self.nodes[nid]
-        if n["type"] in ("start", "end"):
+        if n["type"] in NO_TEXT:
             return
         text = ask_text(self, n["type"], n["text"])
         if text is None or text == n["text"]:
@@ -1562,8 +2061,15 @@ class App(tk.Tk):
         snap = self.to_json()
         if self.sel_node in self.nodes:
             nid = self.sel_node
-            del self.nodes[nid]
+            node = self.nodes.pop(nid)
+            ins = [e for e in self.edges if e["dst"] == nid]
+            outs = [e for e in self.edges if e["src"] == nid]
             self.edges = [e for e in self.edges if nid not in (e["src"], e["dst"])]
+            if node["type"] == "waypoint" and len(ins) == 1 and len(outs) == 1:  # keep the wire whole
+                a, b = ins[0], outs[0]
+                if a["src"] != b["dst"] and not any(
+                        e["src"] == a["src"] and e["dst"] == b["dst"] for e in self.edges):
+                    self.edges.append({"src": a["src"], "dst": b["dst"], "label": a["label"]})
             self.sel_node = None
         elif self.sel_edge:
             self.edges = [e for e in self.edges if (e["src"], e["dst"]) != self.sel_edge]
@@ -1709,7 +2215,7 @@ class App(tk.Tk):
 
     def begin(self):
         for n in self.nodes.values():
-            if n["type"] in ("start", "end"):
+            if n["type"] in NO_TEXT:
                 continue
             err = check_text(n["type"], n["text"])
             if err:
