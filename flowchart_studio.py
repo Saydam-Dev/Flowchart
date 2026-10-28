@@ -1365,7 +1365,7 @@ class App(tk.Tk):
     def show_lang_info(self):
         messagebox.showinfo(APP, T("Language files are small .lang.json files. Download one and put "
                                    "it in any of these folders, then restart the program:\n\n{dirs}",
-                                   dirs="\n".join(lang_dirs())), parent=self)
+                                   dirs="\n \n".join(lang_dirs())), parent=self)
 
     def say(self, msg):
         self.status.set(msg)
