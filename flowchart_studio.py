@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Flowchart Studio / Akış Şeması Stüdyosu
+Flowchart Studio - draw a flowchart, press Run, and it executes.
 
-Akış şeması çizin, sonra Çalıştır'a basın - şema çalışır.
-Draw a flowchart, press Run, and it executes.
+Pure Python + Tkinter (no pip packages), Python 3.9+.
+Install Tk:  sudo apt install python3-tk
+Start:       python3 flowchart_studio.py [chart.flow]
 
-Saf Python + Tkinter (ek paket gerekmez / no pip packages). Python 3.9+ gerekir.
-Kurulum / Install:   sudo apt install python3-tk
-Başlatma / Start:    python3 flowchart_studio.py [dosya.flow]
+The interface is in English. Other languages are small "<code>.lang.json" files
+(for example tr.lang.json) placed next to this script; see Settings > Language.
 """
 import ast
 import copy
@@ -25,7 +25,6 @@ from tkinter import filedialog, messagebox, ttk
 APP = "Flowchart Studio"
 EXT = ".flow"
 CONFIG = os.path.join(os.path.expanduser("~"), ".config", "flowchart-studio", "config.json")
-LANG = "tr"
 
 # keyboard shortcuts: action -> Tk key sequences (changeable under Settings)
 ACTIONS = ["new", "open", "save", "undo", "redo", "run", "step", "stop", "zoom_in", "zoom_out",
@@ -48,253 +47,166 @@ DEFAULT_KEYS = {
 KEYS = {k: list(v) for k, v in DEFAULT_KEYS.items()}
 
 
-def L(tr, en):
-    return tr if LANG == "tr" else en
-
-
 # ======================================================================
-#  Translations: key -> (Türkçe, English)
+#  Language packs
+#  English is built in. Every other language is a small "<code>.lang.json" file that
+#  maps the English text to its translation; drop it next to this script (or into a
+#  "lang" folder next to it, or ~/.config/flowchart-studio/lang) and restart.
 # ======================================================================
-_T = {
-    # menus
-    "m_file": ("Dosya", "File"), "m_edit": ("Düzenle", "Edit"), "m_view": ("Görünüm", "View"),
-    "m_run": ("Çalıştır", "Run"), "m_lang": ("Dil", "Language"), "m_help": ("Yardım", "Help"),
-    "f_new": ("Yeni", "New"), "f_open": ("Aç...", "Open..."), "f_save": ("Kaydet", "Save"),
-    "f_saveas": ("Farklı kaydet...", "Save as..."), "f_example": ("Örnek aç", "Open example"),
-    "f_export": ("Resim olarak dışa aktar (PostScript)...", "Export picture (PostScript)..."),
-    "f_quit": ("Çık", "Quit"),
-    "e_undo": ("Geri al", "Undo"), "e_redo": ("Yinele", "Redo"),
-    "e_delete": ("Seçiliyi sil", "Delete selection"),
-    "v_in": ("Yakınlaştır", "Zoom in"), "v_out": ("Uzaklaştır", "Zoom out"),
-    "v_reset": ("%100", "100%"), "v_fit": ("Şemayı pencereye sığdır", "Fit chart to window"),
-    "r_run": ("Çalıştır", "Run"), "r_step": ("Adım adım", "Step"), "r_stop": ("Durdur", "Stop"),
-    "h_how": ("Kullanım kılavuzu", "How to use"),
-    # tools and blocks
-    "t_select": ("Seç / Taşı", "Select / Move"), "t_connect": ("Bağlan", "Connect"),
-    "t_start": ("Başla", "Start"), "t_input": ("Girdi", "Input"), "t_output": ("Yazdır", "Output"),
-    "t_process": ("İşlem", "Process"), "t_decision": ("Karar", "Decision"),
-    "t_loop": ("Döngü", "Loop"), "t_end": ("Bitir", "End"),
-    "s_tools": ("ARAÇLAR", "TOOLS"), "s_blocks": ("BLOKLAR", "BLOCKS"),
-    "s_edit": ("DÜZENLE", "EDIT"), "s_zoom": ("YAKINLAŞTIRMA", "ZOOM"),
-    # buttons and panels
-    "b_run": ("▶ Çalıştır (F5)", "▶ Run (F5)"), "b_step": ("Adım (F6)", "Step (F6)"),
-    "b_stop": ("■ Durdur (F8)", "■ Stop (F8)"),
-    "b_delay": ("   Blok başına gecikme (ms):", "   Delay per block (ms):"),
-    "cb_auto": ("Seçiliden otomatik bağla", "Auto-link from selected"),
-    "b_undo": ("↶ Geri al", "↶ Undo"), "b_redo": ("↷ Yinele", "↷ Redo"),
-    "b_delete": ("✕ Sil", "✕ Delete"), "b_fit": ("Sığdır", "Fit"), "b_clear": ("Temizle", "Clear"),
-    "p_vars": ("Değişkenler", "Variables"), "p_out": ("Çıktı", "Output"),
-    "col_name": ("Ad", "Name"), "col_val": ("Değer", "Value"),
-    # block texts
-    "start_txt": ("Başla", "Start"), "end_txt": ("Bitir", "End"),
-    "pre_input": ("Girdi: ", "Input: "), "pre_output": ("Yazdır: ", "Print: "),
-    "pre_loop": ("Döngü: ", "Loop: "),
-    "lbl_Yes": ("Evet", "Yes"), "lbl_No": ("Hayır", "No"),
-    "lbl_Loop": ("Döngü", "Loop"), "lbl_Done": ("Bitti", "Done"),
-    # dialogs
-    "dt_input": ("Girdi bloğu", "Input block"), "dt_output": ("Yazdır bloğu", "Output block"),
-    "dt_process": ("İşlem bloğu", "Process block"), "dt_decision": ("Karar bloğu", "Decision block"),
-    "dt_loop": ("Döngü bloğu", "Loop block"),
-    "dh_input": ("Klavyeden okunacak değişken(ler).\nÖrnekler:   n      a, b      A[i]",
-                 "Variable(s) to read from the keyboard.\nExamples:   n      a, b      A[i]"),
-    "dh_output": ('Yazdırılacak şey - yazılar tırnak içinde, değişkenler tırnaksız.\nÖrnek:   "Toplam =", toplam',
-                  'What to print - text in quotes, variables without.\nExample:   "Total =", total'),
-    "dh_process": ("İfadeler; her satıra bir tane (ya da ; ile ayırın).\nÖrnekler:   toplam = toplam + i      A = dizi(5)      A[0] = 7",
-                   "Statements, one per line (or separated by ;).\nExamples:   total = total + i      A = array(5)      A[0] = 7"),
-    "dh_decision": ("Evet/Hayır sorusu (koşul).\nÖrnek:   n % 2 == 0",
-                    "A yes/no condition.\nExample:   n % 2 == 0"),
-    "dh_loop": ("Döngü tanımı:\n  i = 1 to n      i = 10 to 1 step -1      x in A",
-                "Loop definition:\n  i = 1 to n      i = 10 to 1 step -1      x in A"),
-    "btn_ok": ("Tamam  (Ctrl+Enter)", "OK  (Ctrl+Enter)"), "btn_cancel": ("İptal", "Cancel"),
-    "dt_enter": ("Girdi", "Input"),
-    "d_enter": ("{name} için bir değer girin:", "Enter a value for {name}:"),
-    # validation / syntax messages
-    "in_bad": ("Bir ya da daha fazla değişken adı yazın, örn.   n   veya   a, b   veya   A[i]",
-               "Enter one or more variable names, e.g.   n   or   a, b   or   A[i]"),
-    "p_empty": ("En az bir ifade yazın, örn.   x = 1", "Write at least one statement, e.g.   x = 1"),
-    "d_empty": ("Bir koşul yazın, örn.   n > 0", "Write a condition, e.g.   n > 0"),
-    "loop_bad": ("Döngü biçimi:   i = 1 to n   veya   i = 1 to n step 2   veya   x in A",
-                 "Loop format:   i = 1 to n   or   i = 1 to n step 2   or   x in A"),
-    "loop_step0": ("adım 0 olamaz", "step cannot be 0"),
-    "se_unsupported": ("'{name}' burada desteklenmiyor (if ve döngüler için oklar, Karar ve Döngü bloklarını kullanın)",
-                       "'{name}' is not supported here (use arrows, Decision and Loop blocks for if/loops)"),
-    "se_underscore": ("adlar alt çizgi ile başlayamaz", "names may not start with an underscore"),
-    "se_call": ("sadece hazır yardımcılar çağrılabilir (abs, sqrt, round, int, len, dizi, randint, ...)",
-                "only built-in helpers can be called (abs, sqrt, round, int, len, array, randint, ...)"),
-    "se_invalid": ("geçersiz sözdizimi", "invalid syntax"),
-    "arr_dims": ("dizi(...) negatif olmayan tamsayı boyutlar ister, örn. dizi(5) veya dizi(3, 4)",
-                 "array(...) needs non-negative whole-number sizes, e.g. array(5) or array(3, 4)"),
-    # runtime errors
-    "ie_one_start": ("Şemada tam olarak bir Başla bloğu olmalı.", "The chart needs exactly one Start block."),
-    "ie_no_label": ("Bu bloğun '{label}' oku yok.", "This block has no '{label}' arrow."),
-    "ie_no_arrow": ("Bu bloktan çıkan ok yok.", "No arrow leaves this block."),
-    "ie_undefined": ("'{name}' değişkeninin henüz değeri yok - önce ona bir değer verin",
-                     "'{name}' has no value yet - give it a value first"),
-    "ie_zero": ("Sıfıra bölme", "Division by zero"),
-    "ie_index": ("Dizi indeksi sınırların dışında (indeksler 0'dan başlar)",
-                 "Array index out of range (indexes start at 0)"),
-    "ie_overflow": ("Sayı çok büyük", "Number too large"),
-    "ie_notiter": ("Bu değer üzerinde döngü kurulamaz", "This value can't be looped over"),
-    "ie_prefix": ("Hata: {msg}", "Error: {msg}"),
-    "msg_done": ("- bitti -", "- finished -"),
-    # status bar
-    "st_select": ("Blokları sürükleyin  |  çift tıklayarak düzenleyin  |  bir bloktan diğerine SAĞ TUŞLA sürükleyip bağlayın  |  Delete siler",
-                  "Drag blocks to move  |  double-click to edit  |  right-drag from one block to another to connect  |  Delete removes"),
-    "st_connect": ("Önce ilk bloğa, sonra gideceği bloğa tıklayın.", "Click the first block, then the block it should lead to."),
-    "st_place": ("{name} bloğu koymak için çalışma alanına tıklayın.", "Click on the canvas to place a {name} block."),
-    "st_link": ("Şimdi bu bloğun gideceği bloğa tıklayın.", "Now click the block it should lead to."),
-    "st_welcome": ("Örnek yüklendi - çalıştırmak için F5'e basın; boş şema için Dosya > Yeni.",
-                   "Example loaded - press F5 to run it; File > New for a blank chart."),
-    "st_new": ("Yeni şema. Soldan bir blok seçip çalışma alanına tıklayın.",
-               "New chart. Pick a block on the left, then click on the canvas."),
-    "st_opened": ("Açıldı: {path}", "Opened {path}"), "st_saved": ("Kaydedildi: {path}", "Saved {path}"),
-    "st_exported": ("Dışa aktarıldı: {path}   (PDF için:  ps2pdf {name})",
-                    "Exported {path}   (convert to PDF with:  ps2pdf {name})"),
-    "st_running": ("Çalışıyor...  (Durdur = F8)", "Running...  (Stop = F8)"),
-    "st_stopped": ("Durduruldu.", "Stopped."),
-    "st_step": ("Turuncu bloğu çalıştırmak için Adım'a basın.", "Press Step to run the orange block."),
-    "st_finished": ("{n} blok çalıştırıldı, bitti.", "Finished after {n} blocks."),
-    "st_errstop": ("Hata nedeniyle durdu (kırmızı blok).", "The run stopped because of an error (the red block)."),
-    "st_cancel": ("Girdi iptal edildi - çalışma durdu.", "Input cancelled - run stopped."),
-    # connect errors
-    "er_self": ("Bir blok kendine bağlanamaz.", "A block can't point to itself."),
-    "er_end": ("Bitir bloğundan ok çıkamaz.", "An End block can't have outgoing arrows."),
-    "er_start": ("Başla bloğuna ok gelemez.", "Nothing can point to Start."),
-    "er_dup": ("Bu bloklar zaten bağlı.", "Those blocks are already connected."),
-    "er_full_decision": ("Karar bloğunun Evet ve Hayır okları zaten var.", "A decision already has its Yes and No arrows."),
-    "er_full_loop": ("Döngü bloğunun Döngü ve Bitti okları zaten var.", "A loop already has its Loop and Done arrows."),
-    "er_one_start": ("Zaten bir Başla bloğu var.", "There is already a Start block."),
-    # files
-    "fix_block": ("Önce bu bloğu düzeltin:\n\n{err}", "Fix this block first:\n\n{err}"),
-    "bad_file": ("Bu dosya geçerli bir akış şeması değil.", "That file isn't a valid flowchart."),
-    "save_err": ("Kaydedilemedi: {err}", "Could not save: {err}"),
-    "ask_save": ("Değişiklikler kaydedilsin mi?", "Save changes to the current flowchart first?"),
-    "ft_flow": ("Akış şeması", "Flowchart"), "ft_all": ("Tüm dosyalar", "All files"),
-    "untitled": ("adsız", "untitled"), "help_title": ("Kullanım kılavuzu", "How to use"),
-    # examples
-    "ex_sum": ("Toplam 1..N (karar ile döngü)", "Sum 1..N (decision loop)"),
-    "ex_fact": ("Faktöriyel (döngü bloğu)", "Factorial (loop block)"),
-    "ex_table": ("Çarpım tablosu", "Multiplication table"),
-    "ex_evenodd": ("Tek mi çift mi?", "Even or odd"),
-    "ex_array": ("Dizi: toplam ve en büyük", "Array: sum and maximum"),
-    "ex_conn": ("Bağlayıcı örneği", "Connector example"),
-    # new blocks
-    "t_endloop": ("Döngü sonu", "End loop"), "t_connector": ("Bağlayıcı", "Connector"),
-    "t_waypoint": ("Kablo noktası", "Wire point"),
-    "pre_endloop": ("Döngü sonu", "End loop"),
-    "dt_connector": ("Bağlayıcı", "Connector"),
-    "dh_connector": ("Bağlayıcı adı, örn.   A\nAynı adlı iki bağlayıcı birbirine bağlanır: akış, çıkış oku olmayandan çıkış oku olana atlar.\nBoş bırakırsanız sadece bir birleştirme noktası olur.",
-                     "Connector name, e.g.   A\nTwo connectors with the same name are linked: the flow jumps from the one with no outgoing arrow to the one that has an arrow.\nLeave it empty for a plain junction."),
-    "conn_long": ("En fazla 10 karakter yazın.", "Use at most 10 characters."),
-    "ie_endloop": ("Döngü sonu bloğu bir Döngü bloğuna bağlı olmalı.", "An End-loop block must be wired back to a Loop block."),
-    "ie_connector": ("'{name}' adlı bağlayıcının eşi yok (aynı adlı, çıkış oku olan bir bağlayıcı gerekir).",
-                     "Connector '{name}' has no partner (you need a connector with the same name that has an outgoing arrow)."),
-    "er_endloop_target": ("Döngü sonu bloğu sadece bir Döngü bloğuna bağlanabilir.", "An End-loop block can only be wired to a Loop block."),
-    "st_wire": ("Kablo seçildi - Delete ile silin; ortadaki daireyi sürükleyerek kabloya nokta ekleyin; sağ tık menüsü de var.",
-                "Wire selected - Delete removes it; drag the middle handle to add a bend point; right-click for a menu."),
-    "ctx_bend": ("Kabloya nokta ekle", "Add bend point"), "ctx_flip": ("Etiketleri değiştir", "Swap labels"),
-    "ctx_delete": ("Kabloyu sil", "Delete wire"),
-    # settings / keyboard shortcuts
-    "m_set": ("Ayarlar", "Settings"), "set_keys": ("Klavye kısayolları...", "Keyboard shortcuts..."),
-    "kd_title": ("Klavye kısayolları", "Keyboard shortcuts"),
-    "kd_hint": ("Bir satırı seçip Değiştir'e basın (ya da çift tıklayın), sonra yeni tuş kombinasyonuna basın.",
-                "Select a row and press Change (or double-click), then press the new key combination."),
-    "kd_col_action": ("İşlem", "Action"), "kd_col_key": ("Kısayol", "Shortcut"),
-    "kd_change": ("Değiştir...", "Change..."), "kd_clear": ("Kaldır", "Remove"),
-    "kd_reset": ("Varsayılanlara dön", "Reset to defaults"), "kd_close": ("Kapat", "Close"),
-    "kd_conflict": ("{key} zaten \"{other}\" için kullanılıyor. Yine de buna atansın mı?",
-                    "{key} is already used for \"{other}\". Assign it here anyway?"),
-    "cap_prompt": ("\"{name}\" için yeni tuş kombinasyonuna basın", "Press the new key combination for \"{name}\""),
-    "k_new": ("Yeni şema", "New chart"), "k_open": ("Şema aç", "Open chart"), "k_save": ("Kaydet", "Save"),
-    "k_undo": ("Geri al", "Undo"), "k_redo": ("Yinele", "Redo"), "k_run": ("Çalıştır", "Run"),
-    "k_step": ("Adım adım", "Step"), "k_stop": ("Durdur", "Stop"),
-    "k_zoom_in": ("Yakınlaştır", "Zoom in"), "k_zoom_out": ("Uzaklaştır", "Zoom out"),
-    "k_zoom_reset": ("Yakınlaştırmayı %100 yap", "Zoom 100%"), "k_fit": ("Şemayı pencereye sığdır", "Fit chart to window"),
-    "k_delete": ("Seçili blok / kabloyu sil", "Delete selected block / wire"),
-    "k_tool": ("Araç: {name}", "Tool: {name}"),
+LANG = "en"            # code of the language in use
+STR = {}               # English text -> translated text (from the pack in use)
+HELP_OVERRIDE = None   # help text of the pack in use, if it has one
+PACKS = {}             # code -> {"name": ..., "path": ...}
+
+TOOL_NAMES = {
+    'select': 'Select / Move',
+    'connect': 'Connect',
+    'start': 'Start',
+    'end': 'End',
+    'input': 'Input',
+    'output': 'Print',
+    'process': 'Process',
+    'decision': 'Decision',
+    'loop': 'Loop',
+    'endloop': 'End loop',
+    'connector': 'Connector',
+    'waypoint': 'Wire point',
+}
+
+PREFIX = {
+    'input': 'Input: ',
+    'output': 'Print: ',
+    'loop': 'Loop: ',
+}
+
+DIALOG_TITLES = {
+    'input': 'Input block',
+    'output': 'Print block',
+    'process': 'Process block',
+    'decision': 'Decision block',
+    'loop': 'Loop block',
+    'connector': 'Connector',
+}
+
+DIALOG_HINTS = {
+    'input': 'Variable(s) to read from the keyboard.\nExamples:   n      a, b      A[i]',
+    'output': 'What to print - text in quotes, variables without.\nExample:   "Total =", total',
+    'process': 'Statements, one per line (or separated by ;).\nExamples:   total = total + i      A = array(5)      A[0] = 7',
+    'decision': 'A yes/no condition.\nExample:   n % 2 == 0',
+    'loop': 'Loop definition:\n  i = 1 to n      i = 10 to 1 step -1      x in A',
+    'connector': 'Connector name, e.g.   A\nTwo connectors with the same name are linked: the flow jumps from the one with no outgoing arrow to the one that has an arrow.\nLeave it empty for a plain junction.',
+}
+
+EXAMPLE_TITLES = {
+    'fact': 'Factorial (loop block)',
+    'table': 'Multiplication table',
+    'sum': 'Sum 1..N (decision loop)',
+    'evenodd': 'Even or odd',
+    'array': 'Array: sum and maximum',
+    'conn': 'Connector example',
+}
+
+FULL_MSG = {
+    'decision': 'A decision already has its Yes and No arrows.',
+    'loop': 'A loop already has its Loop and Done arrows.',
+}
+
+TOOL_HINTS = {
+    'select': 'Drag blocks to move  |  double-click to edit  |  right-drag from one block to another to connect  |  Delete removes',
+    'connect': 'Click the first block, then the block it should lead to.',
+}
+
+BUTTONS = {
+    'undo': '↶ Undo',
+    'redo': '↷ Redo',
+    'delete': '✕ Delete',
+}
+
+ACTION_LABELS = {
+    'new': 'New chart',
+    'open': 'Open chart',
+    'save': 'Save',
+    'undo': 'Undo',
+    'redo': 'Redo',
+    'run': 'Run',
+    'step': 'Step',
+    'stop': 'Stop',
+    'zoom_in': 'Zoom in',
+    'zoom_out': 'Zoom out',
+    'zoom_reset': 'Zoom 100%',
+    'fit': 'Fit chart to window',
+    'delete': 'Delete selected block / wire',
 }
 
 
-def T(key, /, **kw):
-    s = _T[key][0 if LANG == "tr" else 1]
-    return s.format(**kw) if kw else s
+def T(text, /, **kw):
+    """Translate an English UI string (the English text itself if there is no translation)."""
+    s = STR.get(text, text)
+    if not kw:
+        return s
+    try:
+        return s.format(**kw)
+    except (KeyError, IndexError, ValueError):
+        return text.format(**kw)
 
 
-HELP_TR = """\
-ŞEMA OLUŞTURMAK
-  1. Soldaki panelden bir blok seçin, sonra çalışma alanına tıklayın. Yazıyı girin,
-     Ctrl+Enter ile onaylayın.
-  2. "Seçiliden otomatik bağla" açıkken yeni blok seçili bloğa kendiliğinden bağlanır.
-     Elle bağlamak için: bir bloktan diğerine SAĞ TUŞLA sürükleyin ya da soldaki
-     "Bağlan" aracıyla önce ilk bloğa, sonra ikinciye tıklayın.
-  3. Karar bloğunun ilk oku "Evet", ikincisi "Hayır" olur.
-     Döngü bloğunun ilk oku "Döngü" (gövde), ikincisi "Bitti" (çıkış) olur.
-  4. Bloğu düzenlemek için çift tıklayın, taşımak için sürükleyin. Boş alanı sürükleyerek
-     kaydırırsınız.
+def lang_dirs():
+    here = os.path.dirname(os.path.abspath(__file__))
+    return [here, os.path.join(here, "lang"), os.path.join(os.path.dirname(CONFIG), "lang")]
 
-BLOKLAR
-  Başla / Bitir     şemanın başı ve sonu
-  Girdi / Yazdır    klavyeden değer okur / ekrana yazar
-  İşlem             atama ve hesaplar
-  Karar             Evet / Hayır dallanması
-  Döngü             for döngüsü: gövdeye "Döngü" oku, çıkışa "Bitti" oku gider
-  Döngü sonu        döngü gövdesinin sonu. Gövdenin son bloğu seçiliyken koyun: en yakın
-                    Döngü bloğuna kendiliğinden bağlanır ve kablo geri döner.
-  Bağlayıcı         adlı küçük daire (A, B, ...). Aynı adlı iki bağlayıcı birbirine bağlanır:
-                    akış, çıkış oku olmayandan çıkış oku olana atlar. Uzun kabloları kısaltır.
-                    Adı boş bırakırsanız sadece bir birleştirme noktası olur.
-  Kablo noktası     kabloyu bükmek için küçük nokta; sürükleyerek kabloyu istediğiniz yoldan
-                    geçirirsiniz.
 
-KABLOLAR
-  Bir kabloya tıklayın: seçilir (mavi olur, ortasında bir daire belirir).
-    Delete / Sil düğmesi     seçili kabloyu siler
-    Orta daireyi sürükleyin  kabloya bir Kablo noktası ekler ve taşır
-    Sağ tık                  menü: nokta ekle / Evet-Hayır değiştir / kabloyu sil
-    Çift tık                 Karar ve Döngü kablolarında etiketleri değiştirir,
-                             diğer kablolara nokta ekler
-  Bir Kablo noktasını silerseniz kablo kopmaz, iki yanı birleşir.
+def scan_packs():
+    """Find the *.lang.json files. Function aliases and step words of every pack stay
+    active, so a chart written in one language still runs after switching to another."""
+    PACKS.clear()
+    for d in lang_dirs():
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            continue
+        for fn in names:
+            if not fn.endswith(".lang.json"):
+                continue
+            path = os.path.join(d, fn)
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    data = json.load(fh)
+                code = str(data.get("code") or fn[:-len(".lang.json")])
+                PACKS[code] = {"name": str(data.get("name") or code), "path": path}
+                for alias, target in (data.get("aliases") or {}).items():
+                    if target in SAFE and str(alias).isidentifier() and not str(alias).startswith("_"):
+                        SAFE.setdefault(alias, SAFE[target])
+                for w in data.get("step_words") or []:
+                    if str(w).isidentifier() and w not in _STEP_WORDS:
+                        _STEP_WORDS.append(str(w))
+            except (OSError, ValueError, AttributeError, TypeError):
+                continue
+    global _COUNT
+    _COUNT = _loop_regex()
 
-YAKINLAŞTIRMA
-  Ctrl + fare tekerleği, Ctrl + / Ctrl -, ya da soldaki + / - / Sığdır düğmeleri.
-  Ctrl+0 = %100.
 
-ÇALIŞTIRMA
-  Çalıştır (F5) şemayı çalıştırır. Adım (F6) bir seferde tek blok çalıştırır; turuncu blok
-  sıradaki bloktur. Durdur (F8) çalışmayı bitirir. Gecikme çubuğu hızı ayarlar
-  (0 = en hızlı). Değişkenler sağda canlı görünür.
+def use_lang(code):
+    """Switch to a language pack (English if the pack is missing or broken)."""
+    global LANG, STR, HELP_OVERRIDE
+    LANG, STR, HELP_OVERRIDE = "en", {}, None
+    if code in PACKS:
+        try:
+            with open(PACKS[code]["path"], encoding="utf-8") as fh:
+                data = json.load(fh)
+            STR = {str(k): str(v) for k, v in (data.get("strings") or {}).items()}
+            h = data.get("help")
+            HELP_OVERRIDE = "\n".join(h) if isinstance(h, list) else (h if isinstance(h, str) else None)
+            LANG = code
+        except (OSError, ValueError, AttributeError):
+            STR = {}
 
-BLOK YAZILARI  (Python tarzı ifadeler)
-  Girdi    n         a, b         A[i]          (sayılar otomatik tanınır)
-  İşlem    toplam = toplam + i       satır başına bir ifade ya da  a = 1; b = 2
-  Karar    n % 2 == 0      i <= 10      x > 0 and y > 0
-  Yazdır   "Toplam:", toplam          f"Alan = {en * boy}"
-  Döngü    i = 1 to n       i = 10 to 1 step -1       x in A
-           (to = "...e kadar", step = adım;  "x in A" dizinin her elemanı için döner)
 
-DİZİLER
-  A = dizi(5)          5 elemanlı, sıfırla dolu dizi (indeksler 0..4)
-  M = dizi(3, 4)       3x4 matris
-  A = [4, 9, 2]        elle tanımlama
-  A[0] = 7      A[i] = A[i] + 1      M[1][2] = 5      len(A)      ekle(A, 5)
-  A[i], A[j] = A[j], A[i]            iki elemanın yerini değiştirir
-  Girdi bloğuna  A[i]  yazarak dizinin elemanına değer okuyabilirsiniz
-  (Döngü bloğuyla birlikte: Döngü  i = 0 to 4   Girdi  A[i]).
+def default_lang():
+    env = (os.environ.get("LC_ALL") or os.environ.get("LANG") or "")[:2].lower()
+    return env if env in PACKS else "en"
 
-İŞLEVLER
-  abs min max round int float str len sum sorted range sqrt floor ceil sin cos tan
-  log log10 exp factorial gcd pi randint(a, b) rand()   dizi(...) / array(...)
-  Türkçe takma adlar: uzunluk  karekok  mutlak  rastgele  sirala  ekle
 
-KLAVYE KISAYOLLARI
-  Ayarlar > Klavye kısayolları ile tüm tuşları değiştirebilirsiniz.
-  Varsayılanlar: Ctrl+N/O/S yeni/aç/kaydet, Ctrl+Z/Y geri al/yinele, F5/F6/F8 çalıştır/adım/durdur,
-  Ctrl +/-/0 yakınlaştırma, Ctrl+8 sığdır, Delete sil, Esc Seç aracı.
-  Araçlar: 1 Seç, 2 Bağlan, 3 Girdi, 4 Yazdır, 5 İşlem, 6 Karar, 7 Döngü, 8 Döngü sonu,
-  9 Bağlayıcı, 0 Kablo noktası.
-"""
-
-HELP_EN = """\
+HELP = """\
 BUILDING A CHART
   1. Pick a block in the left panel, then click on the canvas. Type its text and press
      Ctrl+Enter.
@@ -354,8 +266,8 @@ ARRAYS
 
 FUNCTIONS
   abs min max round int float str len sum sorted range sqrt floor ceil sin cos tan
-  log log10 exp factorial gcd pi randint(a, b) rand()   array(...) / dizi(...)
-  Turkish aliases: uzunluk  karekok  mutlak  rastgele  sirala  ekle
+  log log10 exp factorial gcd pi randint(a, b) rand()   array(...)
+  Language packs can add their own names for these functions.
 
 KEYBOARD SHORTCUTS
   Settings > Keyboard shortcuts lets you change every key.
@@ -370,18 +282,18 @@ KEYBOARD SHORTCUTS
 #  Settings
 # ======================================================================
 def load_config():
-    global LANG
+    """Read the saved settings; returns the saved language code (or None)."""
+    lang = None
     try:
         with open(CONFIG, encoding="utf-8") as fh:
             cfg = json.load(fh)
-        LANG = cfg.get("lang", LANG)
+        lang = cfg.get("lang")
         for aid, seqs in (cfg.get("keys") or {}).items():
             if aid in DEFAULT_KEYS and isinstance(seqs, list) and all(isinstance(s, str) for s in seqs):
                 KEYS[aid] = seqs
     except (OSError, ValueError, AttributeError):
         pass
-    if LANG not in ("tr", "en"):
-        LANG = "tr"
+    return lang if isinstance(lang, str) else None
 
 
 def save_config():
@@ -415,7 +327,7 @@ def _append(lst, value):
 
 def _array(*dims):
     if not dims or any(not isinstance(d, int) or isinstance(d, bool) or d < 0 for d in dims):
-        raise ValueError(T("arr_dims"))
+        raise ValueError(T('array(...) needs non-negative whole-number sizes, e.g. array(5) or array(3, 4)'))
     total = 1
     for d in dims:
         total *= d
@@ -432,7 +344,7 @@ def _array(*dims):
 
 def _count(start, end, step):
     if step == 0:
-        raise ValueError(T("loop_step0"))
+        raise ValueError(T('step cannot be 0'))
     v = start
     if step > 0:
         while v <= end:
@@ -451,9 +363,7 @@ SAFE = {
     "ceil": math.ceil, "sin": math.sin, "cos": math.cos, "tan": math.tan,
     "log": math.log, "log10": math.log10, "exp": math.exp, "factorial": _factorial,
     "gcd": math.gcd, "pi": math.pi, "e": math.e, "randint": random.randint,
-    "rand": random.random, "append": _append, "array": _array, "dizi": _array,
-    "uzunluk": len, "karekok": math.sqrt, "mutlak": abs, "rastgele": random.randint,
-    "sirala": sorted, "ekle": _append, "_pw": _safe_pow,
+    "rand": random.random, "append": _append, "array": _array, "_pw": _safe_pow,
 }
 
 _OK = (ast.Module, ast.Expression, ast.Expr, ast.Assign, ast.AugAssign, ast.BinOp,
@@ -485,12 +395,12 @@ class _PowGuard(ast.NodeTransformer):
 def _validate(tree):
     for node in ast.walk(tree):
         if not isinstance(node, _OK):
-            raise SyntaxError(T("se_unsupported", name=type(node).__name__))
+            raise SyntaxError(T("'{name}' is not supported here (use arrows, Decision and Loop blocks for if/loops)", name=type(node).__name__))
         if isinstance(node, ast.Name) and node.id.startswith("_"):
-            raise SyntaxError(T("se_underscore"))
+            raise SyntaxError(T('names may not start with an underscore'))
         if isinstance(node, ast.Call) and not (isinstance(node.func, ast.Name)
                                                and node.func.id in SAFE):
-            raise SyntaxError(T("se_call"))
+            raise SyntaxError(T('only built-in helpers can be called (abs, sqrt, round, int, len, array, randint, ...)'))
 
 
 def compile_code(src, mode):
@@ -533,7 +443,7 @@ def parse_target(src):
     _validate(tree)
     node = tree.body
     if not isinstance(node, (ast.Name, ast.Subscript)):
-        raise SyntaxError(T("in_bad"))
+        raise SyntaxError(T('Enter one or more variable names, e.g.   n   or   a, b   or   A[i]'))
     return node
 
 
@@ -552,8 +462,16 @@ def compile_slice(node):
     return compile(expr, "<flowchart>", "eval")
 
 
-_COUNT = re.compile(r"^([^\W\d]\w*)\s*=\s*(.+?)\s+to\s+(.+?)(?:\s+(?:step|ad[ıi]m)\s+(.+))?$",
-                    re.I | re.S)
+_STEP_WORDS = ["step"]
+
+
+def _loop_regex():
+    words = "|".join(re.escape(w) for w in _STEP_WORDS)
+    return re.compile(r"^([^\W\d]\w*)\s*=\s*(.+?)\s+to\s+(.+?)(?:\s+(?:" + words + r")\s+(.+))?$",
+                      re.I | re.S)
+
+
+_COUNT = _loop_regex()
 _EACH = re.compile(r"^([^\W\d]\w*)\s+in\s+(.+)$", re.S)
 
 
@@ -569,13 +487,13 @@ def parse_loop(text):
         if m:
             spec = ("each", m.group(1), m.group(2))
     if spec is None or spec[1].startswith("_"):
-        raise SyntaxError(T("loop_bad"))
+        raise SyntaxError(T('Loop format:   i = 1 to n   or   i = 1 to n step 2   or   x in A'))
     return spec
 
 
 def friendly(e):
     msg = e.msg or ""
-    return T("se_invalid") if msg == "invalid syntax" else (msg or T("se_invalid"))
+    return T('invalid syntax') if msg == "invalid syntax" else (msg or T('invalid syntax'))
 
 
 def check_text(kind, text):
@@ -585,7 +503,7 @@ def check_text(kind, text):
         if kind == "input":
             parts = split_top(t)
             if not parts:
-                return T("in_bad")
+                return T('Enter one or more variable names, e.g.   n   or   a, b   or   A[i]')
             for p in parts:
                 parse_target(p)
         elif kind == "output":
@@ -593,18 +511,18 @@ def check_text(kind, text):
                 compile_code("(" + t + ",)", "eval")
         elif kind == "process":
             if not t:
-                return T("p_empty")
+                return T('Write at least one statement, e.g.   x = 1')
             compile_code(t, "exec")
         elif kind == "decision":
             if not t:
-                return T("d_empty")
+                return T('Write a condition, e.g.   n > 0')
             compile_code(t, "eval")
         elif kind == "loop":
             for src in parse_loop(t)[2:]:
                 compile_code(src, "eval")
         elif kind == "connector":
             if len(t) > 10 or "\n" in t:
-                return T("conn_long")
+                return T('Use at most 10 characters.')
     except SyntaxError as e:
         return friendly(e)
     except Exception as e:  # noqa: BLE001
@@ -650,7 +568,7 @@ class Interpreter:
             self.out.setdefault(e["src"], []).append(dict(e))
         starts = [n["id"] for n in nodes if n["type"] == "start"]
         if len(starts) != 1:
-            raise FlowError(None, T("ie_one_start"))
+            raise FlowError(None, T('The chart needs exactly one Start block.'))
         self.cur = starts[0]
         self.prev = None
         # connectors: one with no outgoing arrow jumps to a same-named one that has an arrow
@@ -759,31 +677,31 @@ class Interpreter:
         except FlowError:
             raise
         except NameError as e:
-            raise FlowError(nid, T("ie_undefined", name=getattr(e, "name", None) or str(e)))
+            raise FlowError(nid, T("'{name}' has no value yet - give it a value first", name=getattr(e, "name", None) or str(e)))
         except ZeroDivisionError:
-            raise FlowError(nid, T("ie_zero"))
+            raise FlowError(nid, T('Division by zero'))
         except IndexError:
-            raise FlowError(nid, T("ie_index"))
+            raise FlowError(nid, T('Array index out of range (indexes start at 0)'))
         except OverflowError:
-            raise FlowError(nid, T("ie_overflow"))
+            raise FlowError(nid, T('Number too large'))
         except Exception as e:  # noqa: BLE001
             if t == "loop" and isinstance(e, TypeError):
-                raise FlowError(nid, T("ie_notiter"))
+                raise FlowError(nid, T("This value can't be looped over"))
             raise FlowError(nid, f"{type(e).__name__}: {e}")
 
         outs = self.out.get(nid, [])
         if t in PAIR:
             nxt = next((e for e in outs if e["label"] == label), None)
             if nxt is None:
-                raise FlowError(nid, T("ie_no_label", label=T("lbl_" + label)))
+                raise FlowError(nid, T("This block has no '{label}' arrow.", label=T(label)))
         else:
             if not outs:
                 if t == "connector" and n["text"].strip():
-                    raise FlowError(nid, T("ie_connector", name=n["text"].strip()))
-                raise FlowError(nid, T("ie_endloop") if t == "endloop" else T("ie_no_arrow"))
+                    raise FlowError(nid, T("Connector '{name}' has no partner (you need a connector with the same name that has an outgoing arrow).", name=n["text"].strip()))
+                raise FlowError(nid, T('An End-loop block must be wired back to a Loop block.') if t == "endloop" else T('No arrow leaves this block.'))
             nxt = outs[0]
             if t == "endloop" and self.nodes[nxt["dst"]]["type"] != "loop":
-                raise FlowError(nid, T("ie_endloop"))
+                raise FlowError(nid, T('An End-loop block must be wired back to a Loop block.'))
         self.prev = nid
         self.cur = nxt["dst"]
         return "ok"
@@ -817,18 +735,18 @@ def shade(color, f):
 
 def example(eid):
     """(nodes, edges) for a built-in example, texts in the current language."""
-    tot = L("toplam", "total")
+    tot = T("total")
     if eid == "sum":
         nodes = [("start", "", 260, 50), ("input", "n", 260, 130),
                  ("process", f"{tot} = 0\ni = 1", 260, 215), ("decision", "i <= n", 260, 330),
                  ("process", f"{tot} = {tot} + i\ni = i + 1", 260, 450),
-                 ("output", L(f'"Toplam:", {tot}', f'"Sum is", {tot}'), 520, 330), ("end", "", 520, 430)]
+                 ("output", T('"Sum is", {t}', t=tot), 520, 330), ("end", "", 520, 430)]
         edges = [(0, 1, ""), (1, 2, ""), (2, 3, ""), (3, 4, "Yes"), (3, 5, "No"), (4, 3, ""), (5, 6, "")]
     elif eid == "fact":
         nodes = [("start", "", 260, 50), ("input", "n", 260, 130), ("process", "f = 1", 260, 215),
                  ("loop", "i = 1 to n", 260, 310), ("process", "f = f * i", 260, 420),
                  ("endloop", "", 260, 510),
-                 ("output", L('"Faktöriyel:", f', '"Factorial:", f'), 520, 310), ("end", "", 520, 400)]
+                 ("output", T('"Factorial:", f'), 520, 310), ("end", "", 520, 400)]
         edges = [(0, 1, ""), (1, 2, ""), (2, 3, ""), (3, 4, "Loop"), (3, 6, "Done"), (4, 5, ""),
                  (5, 3, ""), (6, 7, "")]
     elif eid == "table":
@@ -838,25 +756,24 @@ def example(eid):
         edges = [(0, 1, ""), (1, 2, ""), (2, 3, "Loop"), (2, 5, "Done"), (3, 4, ""), (4, 2, "")]
     elif eid == "evenodd":
         nodes = [("start", "", 300, 50), ("input", "n", 300, 130), ("decision", "n % 2 == 0", 300, 240),
-                 ("output", L('"Çift"', '"Even"'), 150, 360), ("output", L('"Tek"', '"Odd"'), 450, 360),
+                 ("output", T('"Even"'), 150, 360), ("output", T('"Odd"'), 450, 360),
                  ("end", "", 300, 470)]
         edges = [(0, 1, ""), (1, 2, ""), (2, 3, "Yes"), (2, 4, "No"), (3, 5, ""), (4, 5, "")]
     elif eid == "conn":
         nodes = [("start", "", 300, 50), ("input", "n", 300, 130), ("decision", "n > 0", 300, 240),
-                 ("output", L('"Pozitif"', '"Positive"'), 150, 350),
-                 ("output", L('"Pozitif değil"', '"Not positive"'), 450, 350),
+                 ("output", T('"Positive"'), 150, 350),
+                 ("output", T('"Not positive"'), 450, 350),
                  ("connector", "A", 150, 440), ("connector", "A", 450, 440),
                  ("connector", "A", 620, 520), ("end", "", 620, 610)]
         edges = [(0, 1, ""), (1, 2, ""), (2, 3, "Yes"), (2, 4, "No"), (3, 5, ""), (4, 6, ""), (7, 8, "")]
     else:  # array
-        big = L("buyuk", "biggest")
+        big = T("biggest")
         nodes = [("start", "", 260, 50),
                  ("process", f"A = [4, 9, 2, 7, 5]\n{big} = A[0]\n{tot} = 0", 260, 140),
                  ("loop", "x in A", 260, 260), ("process", f"{tot} = {tot} + x", 260, 360),
                  ("decision", f"x > {big}", 260, 470), ("process", f"{big} = x", 260, 590),
                  ("endloop", "", 260, 700),
-                 ("output", L(f'"Toplam =", {tot}, "  En büyük =", {big}',
-                              f'"Total =", {tot}, "  Biggest =", {big}'), 540, 260),
+                 ("output", T('"Total =", {t}, "  Biggest =", {b}', t=tot, b=big), 540, 260),
                  ("end", "", 540, 350), ("waypoint", "", 430, 470), ("waypoint", "", 430, 700)]
         edges = [(0, 1, ""), (1, 2, ""), (2, 3, "Loop"), (2, 7, "Done"), (3, 4, ""), (4, 5, "Yes"),
                  (4, 9, "No"), (9, 10, ""), (10, 6, ""), (5, 6, ""), (6, 2, ""), (7, 8, "")]
@@ -916,8 +833,8 @@ def sequence_from_event(ev):
 
 def action_label(aid):
     if aid.startswith("tool_"):
-        return T("k_tool", name=T("t_" + aid[5:]))
-    return T("k_" + aid)
+        return T('Tool: {name}', name=T(TOOL_NAMES[aid[5:]]))
+    return T(ACTION_LABELS[aid])
 
 
 def shortcut_text(aid):
@@ -964,10 +881,10 @@ class TextDialog(tk.Toplevel):
         super().__init__(parent)
         self.withdraw()
         self.kind, self.result = kind, None
-        self.title(T("dt_" + kind))
+        self.title(T(DIALOG_TITLES[kind]))
         self.transient(parent)
         self.resizable(False, False)
-        ttk.Label(self, text=T("dh_" + kind), justify="left").pack(padx=14, pady=(14, 6), anchor="w")
+        ttk.Label(self, text=T(DIALOG_HINTS[kind]), justify="left").pack(padx=14, pady=(14, 6), anchor="w")
         single = kind in ("input", "decision", "loop")
         self.box = tk.Text(self, width=50, height=2 if single else 5, font="TkFixedFont",
                            undo=True, bd=2, relief="groove")
@@ -978,8 +895,8 @@ class TextDialog(tk.Toplevel):
         self.err.pack(padx=14, pady=3, anchor="w")
         row = ttk.Frame(self)
         row.pack(pady=(2, 12))
-        ttk.Button(row, text=T("btn_ok"), command=self.ok).pack(side="left", padx=4)
-        ttk.Button(row, text=T("btn_cancel"), command=self.destroy).pack(side="left", padx=4)
+        ttk.Button(row, text=T('OK  (Ctrl+Enter)'), command=self.ok).pack(side="left", padx=4)
+        ttk.Button(row, text=T('Cancel'), command=self.destroy).pack(side="left", padx=4)
         self.bind("<Control-Return>", lambda e: self.ok())
         self.bind("<Escape>", lambda e: self.destroy())
         if single:
@@ -1004,18 +921,18 @@ class InputDialog(tk.Toplevel):
         super().__init__(parent)
         self.withdraw()
         self.result = None
-        self.title(T("dt_enter"))
+        self.title(T('Input'))
         self.transient(parent)
         self.resizable(False, False)
-        ttk.Label(self, text=T("d_enter", name=name)).pack(padx=18, pady=(16, 6))
+        ttk.Label(self, text=T('Enter a value for {name}:', name=name)).pack(padx=18, pady=(16, 6))
         self.var = tk.StringVar()
         entry = ttk.Entry(self, textvariable=self.var, width=34)
         entry.pack(padx=18)
         entry.focus_set()
         row = ttk.Frame(self)
         row.pack(pady=12)
-        ttk.Button(row, text=T("btn_ok").split("  ")[0], command=self.ok).pack(side="left", padx=4)
-        ttk.Button(row, text=T("btn_cancel"), command=self.destroy).pack(side="left", padx=4)
+        ttk.Button(row, text=T("OK"), command=self.ok).pack(side="left", padx=4)
+        ttk.Button(row, text=T('Cancel'), command=self.destroy).pack(side="left", padx=4)
         self.bind("<Return>", lambda e: self.ok())
         self.bind("<Escape>", lambda e: self.destroy())
         center_window(self, parent)
@@ -1035,11 +952,11 @@ class CaptureDialog(tk.Toplevel):
         super().__init__(parent)
         self.withdraw()
         self.result = None
-        self.title(T("kd_title"))
+        self.title(T('Keyboard shortcuts'))
         self.transient(parent)
         self.resizable(False, False)
-        ttk.Label(self, text=T("cap_prompt", name=name), justify="center").pack(padx=28, pady=(20, 8))
-        ttk.Button(self, text=T("btn_cancel"), command=self.destroy).pack(pady=(4, 16))
+        ttk.Label(self, text=T('Press the new key combination for "{name}"', name=name), justify="center").pack(padx=28, pady=(20, 8))
+        ttk.Button(self, text=T('Cancel'), command=self.destroy).pack(pady=(4, 16))
         self.bind("<KeyPress>", self.on_key)
         center_window(self, parent)
         self.deiconify()
@@ -1059,15 +976,15 @@ class KeysDialog(tk.Toplevel):
         super().__init__(app)
         self.withdraw()
         self.app = app
-        self.title(T("kd_title"))
+        self.title(T('Keyboard shortcuts'))
         self.transient(app)
-        ttk.Label(self, text=T("kd_hint"), wraplength=460, justify="left").pack(padx=12, pady=(12, 6), anchor="w")
+        ttk.Label(self, text=T('Select a row and press Change (or double-click), then press the new key combination.'), wraplength=460, justify="left").pack(padx=12, pady=(12, 6), anchor="w")
         fr = ttk.Frame(self)
         fr.pack(fill="both", expand=True, padx=12)
         self.tree = ttk.Treeview(fr, columns=("act", "key"), show="headings", height=14,
                                  selectmode="browse")
-        self.tree.heading("act", text=T("kd_col_action"))
-        self.tree.heading("key", text=T("kd_col_key"))
+        self.tree.heading("act", text=T('Action'))
+        self.tree.heading("key", text=T('Shortcut'))
         self.tree.column("act", width=250, anchor="w")
         self.tree.column("key", width=210, anchor="w")
         sb = ttk.Scrollbar(fr, command=self.tree.yview)
@@ -1076,10 +993,10 @@ class KeysDialog(tk.Toplevel):
         self.tree.pack(side="left", fill="both", expand=True)
         row = ttk.Frame(self)
         row.pack(pady=10)
-        ttk.Button(row, text=T("kd_change"), command=self.change).pack(side="left", padx=3)
-        ttk.Button(row, text=T("kd_clear"), command=self.clear).pack(side="left", padx=3)
-        ttk.Button(row, text=T("kd_reset"), command=self.reset).pack(side="left", padx=3)
-        ttk.Button(row, text=T("kd_close"), command=self.destroy).pack(side="left", padx=3)
+        ttk.Button(row, text=T('Change...'), command=self.change).pack(side="left", padx=3)
+        ttk.Button(row, text=T('Remove'), command=self.clear).pack(side="left", padx=3)
+        ttk.Button(row, text=T('Reset to defaults'), command=self.reset).pack(side="left", padx=3)
+        ttk.Button(row, text=T('Close'), command=self.destroy).pack(side="left", padx=3)
         self.tree.bind("<Double-1>", lambda e: self.change())
         self.bind("<Escape>", lambda e: self.destroy())
         self.fill()
@@ -1180,7 +1097,7 @@ class App(tk.Tk):
             self.open_path(path)
         else:
             self.load_example("fact", force=True)
-            self.say(T("st_welcome"))
+            self.say(T('Example loaded - press F5 to run it; File > New for a blank chart.'))
         self.update_idletasks()
         self.after(150, self.center_view)
 
@@ -1203,52 +1120,56 @@ class App(tk.Tk):
             except tk.TclError:
                 pass
         f = tk.Menu(menu, tearoff=0)
-        menu.add_cascade(label=T("m_file"), menu=f)
-        f.add_command(label=T("f_new"), accelerator=self.acc("new"), command=self.new)
-        f.add_command(label=T("f_open"), accelerator=self.acc("open"), command=self.open_dialog)
-        f.add_command(label=T("f_save"), accelerator=self.acc("save"), command=self.save)
-        f.add_command(label=T("f_saveas"), command=self.save_as)
+        menu.add_cascade(label=T('File'), menu=f)
+        f.add_command(label=T('New'), accelerator=self.acc("new"), command=self.new)
+        f.add_command(label=T('Open...'), accelerator=self.acc("open"), command=self.open_dialog)
+        f.add_command(label=T('Save'), accelerator=self.acc("save"), command=self.save)
+        f.add_command(label=T('Save as...'), command=self.save_as)
         ex = tk.Menu(f, tearoff=0)
         for eid in EXAMPLE_IDS:
-            ex.add_command(label=T("ex_" + eid), command=lambda i=eid: self.load_example(i))
-        f.add_cascade(label=T("f_example"), menu=ex)
-        f.add_command(label=T("f_export"), command=self.export_ps)
+            ex.add_command(label=T(EXAMPLE_TITLES[eid]), command=lambda i=eid: self.load_example(i))
+        f.add_cascade(label=T('Open example'), menu=ex)
+        f.add_command(label=T('Export picture (PostScript)...'), command=self.export_ps)
         f.add_separator()
-        f.add_command(label=T("f_quit"), command=self.quit_app)
+        f.add_command(label=T('Quit'), command=self.quit_app)
         e = tk.Menu(menu, tearoff=0)
-        menu.add_cascade(label=T("m_edit"), menu=e)
-        e.add_command(label=T("e_undo"), accelerator=self.acc("undo"), command=self.undo_cmd)
-        e.add_command(label=T("e_redo"), accelerator=self.acc("redo"), command=self.redo_cmd)
-        e.add_command(label=T("e_delete"), accelerator=self.acc("delete"), command=self.delete_sel)
+        menu.add_cascade(label=T('Edit'), menu=e)
+        e.add_command(label=T('Undo'), accelerator=self.acc("undo"), command=self.undo_cmd)
+        e.add_command(label=T('Redo'), accelerator=self.acc("redo"), command=self.redo_cmd)
+        e.add_command(label=T('Delete selection'), accelerator=self.acc("delete"), command=self.delete_sel)
         v = tk.Menu(menu, tearoff=0)
-        menu.add_cascade(label=T("m_view"), menu=v)
-        v.add_command(label=T("v_in"), accelerator=self.acc("zoom_in"), command=lambda: self.zoom_at(1.2))
-        v.add_command(label=T("v_out"), accelerator=self.acc("zoom_out"), command=lambda: self.zoom_at(1 / 1.2))
-        v.add_command(label=T("v_reset"), accelerator=self.acc("zoom_reset"), command=self.zoom_reset)
-        v.add_command(label=T("v_fit"), accelerator=self.acc("fit"), command=self.fit_view)
+        menu.add_cascade(label=T('View'), menu=v)
+        v.add_command(label=T('Zoom in'), accelerator=self.acc("zoom_in"), command=lambda: self.zoom_at(1.2))
+        v.add_command(label=T('Zoom out'), accelerator=self.acc("zoom_out"), command=lambda: self.zoom_at(1 / 1.2))
+        v.add_command(label=T('100%'), accelerator=self.acc("zoom_reset"), command=self.zoom_reset)
+        v.add_command(label=T('Fit chart to window'), accelerator=self.acc("fit"), command=self.fit_view)
         r = tk.Menu(menu, tearoff=0)
-        menu.add_cascade(label=T("m_run"), menu=r)
-        r.add_command(label=T("r_run"), accelerator=self.acc("run"), command=self.on_run)
-        r.add_command(label=T("r_step"), accelerator=self.acc("step"), command=self.on_step)
-        r.add_command(label=T("r_stop"), accelerator=self.acc("stop"), command=self.on_stop)
+        menu.add_cascade(label=T('Run'), menu=r)
+        r.add_command(label=T('Run'), accelerator=self.acc("run"), command=self.on_run)
+        r.add_command(label=T('Step'), accelerator=self.acc("step"), command=self.on_step)
+        r.add_command(label=T('Stop'), accelerator=self.acc("stop"), command=self.on_stop)
         st = tk.Menu(menu, tearoff=0)
-        menu.add_cascade(label=T("m_set"), menu=st)
-        st.add_command(label=T("set_keys"), command=self.open_keys)
+        menu.add_cascade(label=T('Settings'), menu=st)
+        st.add_command(label=T('Keyboard shortcuts...'), command=self.open_keys)
         st.add_separator()
         lg = tk.Menu(st, tearoff=0)
-        st.add_cascade(label=T("m_lang"), menu=lg)
-        lg.add_radiobutton(label="Türkçe", value="tr", variable=self.lang_var,
-                           command=lambda: self.set_lang("tr"))
+        st.add_cascade(label=T('Language'), menu=lg)
         lg.add_radiobutton(label="English", value="en", variable=self.lang_var,
                            command=lambda: self.set_lang("en"))
+        for code, info in sorted(PACKS.items()):
+            if code != "en":
+                lg.add_radiobutton(label=info["name"], value=code, variable=self.lang_var,
+                                   command=lambda c=code: self.set_lang(c))
+        lg.add_separator()
+        lg.add_command(label=T("Add a language..."), command=self.show_lang_info)
         h = tk.Menu(menu, tearoff=0)
-        menu.add_cascade(label=T("m_help"), menu=h)
-        h.add_command(label=T("h_how"), command=self.show_help)
+        menu.add_cascade(label=T('Help'), menu=h)
+        h.add_command(label=T('How to use'), command=self.show_help)
 
     def tool_button(self, parent, val):
         color = COLORS.get(val, "#e0e0e0")
         edge = OUTLINE.get(val, "#90a4ae")
-        return tk.Radiobutton(parent, text=T("t_" + val), value=val, variable=self.tool,
+        return tk.Radiobutton(parent, text=T(TOOL_NAMES[val]), value=val, variable=self.tool,
                               indicatoron=False, anchor="w", padx=6, pady=2, bg=color,
                               font=self.bfont, activebackground=shade(color, 0.93),
                               selectcolor=shade(color, 0.78), fg="#263238", relief="raised",
@@ -1257,7 +1178,7 @@ class App(tk.Tk):
 
     def edit_button(self, parent, val):
         cmd = {"undo": self.undo_cmd, "redo": self.redo_cmd, "delete": self.delete_sel}[val]
-        return ttk.Button(parent, text=T("b_" + val), command=cmd)
+        return ttk.Button(parent, text=T(BUTTONS[val]), command=cmd)
 
     def build_sidebar(self):
         side = tk.Frame(self, bg=SIDE_BG, bd=1, relief="groove")
@@ -1275,34 +1196,34 @@ class App(tk.Tk):
             for i, v in enumerate(vals):
                 make(fr, v).grid(row=i // 2, column=i % 2, sticky="ew", padx=2, pady=1)
 
-        head(T("s_tools"))
+        head(T('TOOLS'))
         grid(["select", "connect"], self.tool_button)
-        head(T("s_blocks"))
+        head(T('BLOCKS'))
         grid(SIDE_BLOCKS, self.tool_button)
-        head(T("s_edit"))
+        head(T('EDIT'))
         grid(["undo", "redo", "delete"], self.edit_button)
-        head(T("s_zoom"))
+        head(T('ZOOM'))
         zr = tk.Frame(side, bg=SIDE_BG)
         zr.pack(fill="x", padx=8)
         ttk.Button(zr, text="\u2212", width=3, command=lambda: self.zoom_at(1 / 1.2)).pack(side="left")
         tk.Label(zr, textvariable=self.zoom_var, bg=SIDE_BG, width=5).pack(side="left", expand=True)
         ttk.Button(zr, text="+", width=3, command=lambda: self.zoom_at(1.2)).pack(side="right")
-        ttk.Button(side, text=T("b_fit"), command=self.fit_view).pack(fill="x", padx=8, pady=(3, 8))
+        ttk.Button(side, text=T('Fit'), command=self.fit_view).pack(fill="x", padx=8, pady=(3, 8))
 
     def build_ui(self):
         self.build_menu()
         top = ttk.Frame(self, padding=(8, 5))
         top.pack(side="top", fill="x")
-        ttk.Button(top, text=T("b_run"), command=self.on_run).pack(side="left", padx=2)
-        ttk.Button(top, text=T("b_step"), command=self.on_step).pack(side="left", padx=2)
-        ttk.Button(top, text=T("b_stop"), command=self.on_stop).pack(side="left", padx=2)
-        ttk.Label(top, text=T("b_delay")).pack(side="left")
+        ttk.Button(top, text=T('▶ Run (F5)'), command=self.on_run).pack(side="left", padx=2)
+        ttk.Button(top, text=T('Step (F6)'), command=self.on_step).pack(side="left", padx=2)
+        ttk.Button(top, text=T('■ Stop (F8)'), command=self.on_stop).pack(side="left", padx=2)
+        ttk.Label(top, text=T('   Delay per block (ms):')).pack(side="left")
         self.speed = tk.Scale(top, from_=0, to=1000, resolution=50, orient="horizontal",
                               length=170, showvalue=True)
         self.speed.set(self.speed_value)
         self.speed.pack(side="left")
         ttk.Separator(top, orient="vertical").pack(side="left", fill="y", padx=12)
-        ttk.Checkbutton(top, text=T("cb_auto"), variable=self.autolink).pack(side="left")
+        ttk.Checkbutton(top, text=T('Auto-link from selected'), variable=self.autolink).pack(side="left")
 
         ttk.Label(self, textvariable=self.status, relief="sunken", anchor="w",
                   padding=(8, 3)).pack(side="bottom", fill="x")
@@ -1326,21 +1247,21 @@ class App(tk.Tk):
 
         right = ttk.PanedWindow(paned, orient="vertical")
         paned.add(right, weight=1)
-        vf = ttk.LabelFrame(right, text=T("p_vars"))
+        vf = ttk.LabelFrame(right, text=T('Variables'))
         right.add(vf, weight=1)
         self.vtree = ttk.Treeview(vf, columns=("name", "value"), show="headings", height=8)
-        self.vtree.heading("name", text=T("col_name"))
-        self.vtree.heading("value", text=T("col_val"))
+        self.vtree.heading("name", text=T('Name'))
+        self.vtree.heading("value", text=T('Value'))
         self.vtree.column("name", width=80, anchor="w")
         self.vtree.column("value", width=150, anchor="w")
         self.vtree.pack(fill="both", expand=True, padx=3, pady=3)
-        of = ttk.LabelFrame(right, text=T("p_out"))
+        of = ttk.LabelFrame(right, text=T('Output'))
         right.add(of, weight=2)
         self.console = tk.Text(of, width=30, height=12, font="TkFixedFont", state="disabled",
                                wrap="word", bg="#fafafa")
         cs = ttk.Scrollbar(of, command=self.console.yview)
         self.console.config(yscrollcommand=cs.set)
-        ttk.Button(of, text=T("b_clear"), command=self.clear_console).pack(side="bottom", anchor="e", padx=3)
+        ttk.Button(of, text=T('Clear'), command=self.clear_console).pack(side="bottom", anchor="e", padx=3)
         cs.pack(side="right", fill="y")
         self.console.pack(fill="both", expand=True, padx=(3, 0), pady=3)
         self.console.tag_configure("err", foreground="#b71c1c")
@@ -1394,7 +1315,7 @@ class App(tk.Tk):
         for seq in seqs:
             for other in ACTIONS:
                 if other != aid and seq in KEYS[other]:
-                    if not messagebox.askyesno(APP, T("kd_conflict", key=pretty(seq),
+                    if not messagebox.askyesno(APP, T('{key} is already used for "{other}". Assign it here anyway?', key=pretty(seq),
                                                       other=action_label(other)),
                                                parent=parent or self):
                         return False
@@ -1430,17 +1351,21 @@ class App(tk.Tk):
         self.refresh_vars()
         self.redraw()
         self.set_dirty(self.dirty)
-        self.say(T("st_select"))
+        self.say(T('Drag blocks to move  |  double-click to edit  |  right-drag from one block to another to connect  |  Delete removes'))
         self.after(60, self.center_view)
 
     def set_lang(self, code):
-        global LANG
         if code == LANG:
             return
-        LANG = code
-        self.lang_var.set(code)
+        use_lang(code)
+        self.lang_var.set(LANG)
         save_config()
         self.after(20, self.rebuild_ui)  # let the menu finish closing first
+
+    def show_lang_info(self):
+        messagebox.showinfo(APP, T("Language files are small .lang.json files. Download one and put "
+                                   "it in any of these folders, then restart the program:\n\n{dirs}",
+                                   dirs="\n".join(lang_dirs())), parent=self)
 
     def say(self, msg):
         self.status.set(msg)
@@ -1449,19 +1374,19 @@ class App(tk.Tk):
         t = self.tool.get()
         self.set_link(None)
         if t in ("select", "connect"):
-            self.say(T("st_" + t))
+            self.say(T(TOOL_HINTS[t]))
         else:
-            self.say(T("st_place", name=T("t_" + t)))
+            self.say(T('Click on the canvas to place a {name} block.', name=T(TOOL_NAMES[t])))
 
     def show_help(self):
         w = tk.Toplevel(self)
         w.withdraw()
-        w.title(T("help_title"))
+        w.title(T('How to use'))
         t = tk.Text(w, width=92, height=min(36, max(12, (self.winfo_height() - 80) // 18)),
                     font="TkFixedFont", wrap="none", padx=10, pady=8)
         sb = ttk.Scrollbar(w, command=t.yview)
         t.config(yscrollcommand=sb.set)
-        t.insert("1.0", L(HELP_TR, HELP_EN))
+        t.insert("1.0", HELP_OVERRIDE or HELP)
         t.config(state="disabled")
         sb.pack(side="right", fill="y")
         t.pack(side="left", fill="both", expand=True)
@@ -1470,7 +1395,7 @@ class App(tk.Tk):
 
     def set_dirty(self, v=True):
         self.dirty = v
-        name = os.path.basename(self.path) if self.path else T("untitled")
+        name = os.path.basename(self.path) if self.path else T('untitled')
         self.title(f"{name}{'*' if v else ''} - {APP}")
 
     # ------------------------------------------------------------ drawing
@@ -1489,17 +1414,17 @@ class App(tk.Tk):
     def disp(self, n):
         t = n["type"]
         if t == "start":
-            return T("start_txt")
+            return T('Start')
         if t == "end":
-            return T("end_txt")
+            return T('End')
         if t == "waypoint":
             return ""
         if t == "connector":
             return n["text"]
         if t == "endloop":
             v = self.loop_var(n["id"])
-            return T("pre_endloop") + (": " + v if v else "")
-        pre = T("pre_" + t) if t in ("input", "output", "loop") else ""
+            return T('End loop') + (": " + v if v else "")
+        pre = T(PREFIX[t]) if t in PREFIX else ""
         return pre + n["text"]
 
     def geom(self, n):
@@ -1612,7 +1537,7 @@ class App(tk.Tk):
                 ux, uy = (x1 - x0) / d, (y1 - y0) / d
                 sg = 1 if e["label"] in ("Yes", "Loop") else -1
                 c.create_text((x0 + ux * 24 - uy * 14 * sg) * z, (y0 + uy * 24 + ux * 14 * sg) * z,
-                              text=T("lbl_" + e["label"]), font=self.zfont_b, tags="edge",
+                              text=T(e["label"]), font=self.zfont_b, tags="edge",
                               fill=LABEL_COLOR.get(e["label"], "#37474f"))
             if sel:  # handle in the middle: drag it to bend the wire
                 mx, my = edge_mid(pts)
@@ -1740,7 +1665,7 @@ class App(tk.Tk):
         self.draw_edges()
         self.draw_halo()
         if edge:
-            self.say(T("st_wire"))
+            self.say(T('Wire selected - Delete removes it; drag the middle handle to add a bend point; right-click for a menu.'))
 
     def on_hover(self, ev):
         if self.drag or self.rb or self.tool.get() != "select":
@@ -1763,7 +1688,7 @@ class App(tk.Tk):
         self.style(old)
         self.style(nid)
         if nid:
-            self.say(T("st_link"))
+            self.say(T('Now click the block it should lead to.'))
 
     # --------------------------------------------------------- hit tests
     def node_at(self, x, y):
@@ -1876,12 +1801,12 @@ class App(tk.Tk):
     def wire_menu(self, ev, key, x, y):
         e = next(e for e in self.edges if (e["src"], e["dst"]) == key)
         m = tk.Menu(self, tearoff=0)
-        m.add_command(label=T("ctx_bend"), command=lambda: self.split_edge(
+        m.add_command(label=T('Add bend point'), command=lambda: self.split_edge(
             key, round(x / GRID) * GRID, round(y / GRID) * GRID))
         if self.nodes[e["src"]]["type"] in PAIR:
-            m.add_command(label=T("ctx_flip"), command=lambda: self.flip_label(key))
+            m.add_command(label=T('Swap labels'), command=lambda: self.flip_label(key))
         m.add_separator()
-        m.add_command(label=T("ctx_delete"), command=self.delete_sel)
+        m.add_command(label=T('Delete wire'), command=self.delete_sel)
         try:
             m.tk_popup(ev.x_root, ev.y_root)
         finally:
@@ -1941,21 +1866,21 @@ class App(tk.Tk):
         """Add an arrow. Returns an error message, or None on success."""
         s, d = self.nodes[src], self.nodes[dst]
         if src == dst:
-            return T("er_self")
+            return T("A block can't point to itself.")
         if s["type"] == "end":
-            return T("er_end")
+            return T("An End block can't have outgoing arrows.")
         if s["type"] == "endloop" and d["type"] != "loop":
-            return T("er_endloop_target")
+            return T('An End-loop block can only be wired to a Loop block.')
         if d["type"] == "start":
-            return T("er_start")
+            return T('Nothing can point to Start.')
         if any(e["src"] == src and e["dst"] == dst for e in self.edges):
-            return T("er_dup")
+            return T('Those blocks are already connected.')
         outs = [e for e in self.edges if e["src"] == src]
         label = ""
         if s["type"] in PAIR:
             first, second = PAIR[s["type"]]
             if len(outs) >= 2:
-                return T("er_full_" + s["type"])
+                return T(FULL_MSG[s["type"]])
             label = first if first not in {e["label"] for e in outs} else second
         else:  # one arrow out: a new one replaces the old
             self.edges = [e for e in self.edges if e["src"] != src]
@@ -2011,7 +1936,7 @@ class App(tk.Tk):
     def place(self, kind, x, y):
         self.tool.set("select")
         if kind == "start" and any(n["type"] == "start" for n in self.nodes.values()):
-            self.say(T("er_one_start"))
+            self.say(T('There is already a Start block.'))
             return
         text = {"start": "Start", "end": "End"}.get(kind, "")
         if kind not in NO_TEXT:
@@ -2081,12 +2006,12 @@ class App(tk.Tk):
 
     # -------------------------------------------------------- file I/O
     def filetypes(self):
-        return [(T("ft_flow"), "*" + EXT), (T("ft_all"), "*")]
+        return [(T('Flowchart'), "*" + EXT), (T('All files'), "*")]
 
     def confirm_discard(self):
         if not self.dirty:
             return True
-        r = messagebox.askyesnocancel(APP, T("ask_save"), parent=self)
+        r = messagebox.askyesnocancel(APP, T('Save changes to the current flowchart first?'), parent=self)
         if r is None:
             return False
         return self.save() if r else True
@@ -2108,7 +2033,7 @@ class App(tk.Tk):
                         "edges": []})
         self.reset_doc()
         self.select(nid=1)  # so the first block you place links from Start
-        self.say(T("st_new"))
+        self.say(T('New chart. Pick a block on the left, then click on the canvas.'))
         self.after(30, self.center_view)
 
     def load_example(self, eid, force=False):
@@ -2133,12 +2058,12 @@ class App(tk.Tk):
                 d = json.load(fh)
             validate_chart(d)
         except (OSError, ValueError, KeyError, TypeError):
-            messagebox.showerror(APP, T("bad_file"), parent=self)
+            messagebox.showerror(APP, T("That file isn't a valid flowchart."), parent=self)
             return
         self.on_stop()
         self.load_dict(d)
         self.reset_doc(p)
-        self.say(T("st_opened", path=p))
+        self.say(T('Opened {path}', path=p))
         self.after(30, self.center_view)
 
     def save(self):
@@ -2154,11 +2079,11 @@ class App(tk.Tk):
             with open(p, "w", encoding="utf-8") as fh:
                 fh.write(self.to_json())
         except OSError as e:
-            messagebox.showerror(APP, T("save_err", err=e), parent=self)
+            messagebox.showerror(APP, T('Could not save: {err}', err=e), parent=self)
             return False
         self.path = p
         self.set_dirty(False)
-        self.say(T("st_saved", path=p))
+        self.say(T('Saved {path}', path=p))
         return True
 
     def export_ps(self):
@@ -2172,7 +2097,7 @@ class App(tk.Tk):
             self.canvas.postscript(file=p, colormode="color", x=box[0] - 20, y=box[1] - 20,
                                    width=box[2] - box[0] + 40, height=box[3] - box[1] + 40)
             self.draw_halo()
-            self.say(T("st_exported", path=p, name=os.path.basename(p)))
+            self.say(T('Exported {path}   (convert to PDF with:  ps2pdf {name})', path=p, name=os.path.basename(p)))
 
     def quit_app(self):
         if self.confirm_discard():
@@ -2220,7 +2145,7 @@ class App(tk.Tk):
             err = check_text(n["type"], n["text"])
             if err:
                 self.set_hl(n["id"], err=True)
-                messagebox.showwarning(APP, T("fix_block", err=err), parent=self)
+                messagebox.showwarning(APP, T('Fix this block first:\n\n{err}', err=err), parent=self)
                 return False
         try:
             self.interp = Interpreter(list(self.nodes.values()), self.edges,
@@ -2250,18 +2175,18 @@ class App(tk.Tk):
             nid = e.nid or it.cur
             self.finish()
             self.set_hl(nid, err=True)
-            self.emit(T("ie_prefix", msg=e), "err")
-            self.say(T("st_errstop"))
+            self.emit(T('Error: {msg}', msg=e), "err")
+            self.say(T('The run stopped because of an error (the red block).'))
             return False
         if st == "ok":
             self.set_hl(it.cur)
             return True
         if st == "done":
             self.set_hl(it.cur)
-            self.emit(T("msg_done"))
-            self.say(T("st_finished", n=it.steps))
+            self.emit(T('- finished -'))
+            self.say(T('Finished after {n} blocks.', n=it.steps))
         else:
-            self.say(T("st_cancel"))
+            self.say(T('Input cancelled - run stopped.'))
         self.finish()
         return False
 
@@ -2281,7 +2206,7 @@ class App(tk.Tk):
         if self.interp is None and not self.begin():
             return
         self.mode = "auto"
-        self.say(T("st_running"))
+        self.say(T('Running...  (Stop = F8)'))
         self.tick()
 
     def on_step(self):
@@ -2289,7 +2214,7 @@ class App(tk.Tk):
         if self.interp is None:
             if self.begin():
                 self.mode = "paused"
-                self.say(T("st_step"))
+                self.say(T('Press Step to run the orange block.'))
             return
         self.mode = "paused"
         if self.advance():
@@ -2300,11 +2225,12 @@ class App(tk.Tk):
             return
         self.finish()
         self.set_hl(None)
-        self.say(T("st_stopped"))
+        self.say(T('Stopped.'))
 
 
 if __name__ == "__main__":
-    load_config()
+    scan_packs()
+    use_lang(load_config() or default_lang())
     try:
         App(sys.argv[1] if len(sys.argv) > 1 else None).mainloop()
     except tk.TclError as err:
